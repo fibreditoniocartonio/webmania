@@ -242,14 +242,15 @@ function createCar(wheelMat) {
     const h = -CONFIG.chassisHeight / 2;
     const l = CONFIG.chassisLength / 2 - 0.5;
 
-    // FL, FR, RL, RR
-    options.chassisConnectionPointLocal.set(w - 0.2, h, l);
-    vehicle.addWheel(options);
-    options.chassisConnectionPointLocal.set(-w + 0.2, h, l);
-    vehicle.addWheel(options);
+    // FL, FR (Fronte - Indici 0 e 1 per lo sterzo)
     options.chassisConnectionPointLocal.set(w - 0.2, h, -l);
     vehicle.addWheel(options);
     options.chassisConnectionPointLocal.set(-w + 0.2, h, -l);
+    vehicle.addWheel(options);
+    // RL, RR (Retro - Indici 2 e 3 per la trazione)
+    options.chassisConnectionPointLocal.set(w - 0.2, h, l);
+    vehicle.addWheel(options);
+    options.chassisConnectionPointLocal.set(-w + 0.2, h, l);
     vehicle.addWheel(options);
 
     vehicle.addToWorld(world);
@@ -279,7 +280,7 @@ function animate() {
         chassisMesh.quaternion.copy(chassisBody.quaternion);
 
         // Controlli
-        const force = keys.w ? -CONFIG.engineForce : (keys.s ? CONFIG.engineForce/2 : 0);
+        const force = keys.w ? CONFIG.engineForce : (keys.s ? -CONFIG.engineForce / 2 : 0);
         vehicle.applyEngineForce(force, 2);
         vehicle.applyEngineForce(force, 3);
 
