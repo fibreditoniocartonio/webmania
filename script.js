@@ -4,16 +4,18 @@ import * as CANNON from 'cannon-es';
 // --- CONFIGURAZIONE GLOBALE ---
 const CONFIG = {
     stepFrequency: 60,
-    gravity: -20,
-    chassisWidth: 1.8,
-    chassisHeight: 0.6,
-    chassisLength: 4,
-    mass: 150,
-    engineForce: 1500, // Potenziato un po'
-    brakeForce: 50,
-    maxSteerVal: 0.4,
+    gravity: -25,
+    chassisWidth: 2.0,
+    chassisHeight: 0.5,
+    chassisLength: 4.2,
+    mass: 500,
+    engineForce: 2000,
+    brakeForce: 75,
+    maxSteerVal: 0.30,
+    suspensionStiffness: 40,
+    suspensionRestLength: 0.4,
+    frictionSlip: 2.0,
 };
-
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
 let vehicle, chassisMesh;
@@ -80,7 +82,7 @@ function init() {
 
         // UI Listener
         document.getElementById('gen-btn').addEventListener('click', () => resetTrack(true));
-        
+
         console.log("Gioco Inizializzato Correttamente");
 
     } catch (e) {
@@ -97,7 +99,7 @@ const BLOCK_SIZE = 10;
 function createBlock(type, x, y, z, rotationIndex, matPhysics) {
     const container = new THREE.Object3D();
     container.position.set(x, y, z);
-    
+
     // Ruota il contenitore in base alla direzione
     // 0 = Nord (-Z), 1 = Ovest (-X), 2 = Sud (+Z), 3 = Est (+X)
     container.rotation.y = rotationIndex * (Math.PI / 2);
@@ -127,7 +129,7 @@ function createBlock(type, x, y, z, rotationIndex, matPhysics) {
     body.addShape(shape);
     body.position.copy(container.position);
     body.quaternion.copy(container.quaternion);
-    
+
     // Checkpoint logic
     if (type === MODULES.CHECKPOINT) {
         body.isCheckpoint = true; // Tag personalizzato
@@ -179,7 +181,7 @@ function generateTrack(matPhysics) {
 
         createBlock(type, x, y, z, 0, matPhysics);
     }
-    
+
     // Imposta respawn
     lastCheckpointPosition.set(0, 2, 0);
     lastCheckpointQuaternion.set(0, 0, 0, 1);
@@ -190,28 +192,35 @@ function generateTrack(matPhysics) {
 let speedoCtx, speedoTexture;
 
 function createCar(wheelMat) {
-    // 1. Telaio
+    // 1. Telaio Fisico
     const chassisShape = new CANNON.Box(new CANNON.Vec3(CONFIG.chassisWidth/2, CONFIG.chassisHeight/2, CONFIG.chassisLength/2));
     chassisBody = new CANNON.Body({ mass: CONFIG.mass });
     chassisBody.addShape(chassisShape);
-    chassisBody.position.set(0, 4, 0); // Spawn in alto
-    chassisBody.angularDamping = 0.5;
+    chassisBody.position.set(0, 3, 0);
+    chassisBody.angularDamping = 0.5; // Riduce rotazioni incontrollate
     world.addBody(chassisBody);
 
-    // Mesh
+    // Mesh Grafica Telaio
     const geo = new THREE.BoxGeometry(CONFIG.chassisWidth, CONFIG.chassisHeight, CONFIG.chassisLength);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0xd92525 });
     chassisMesh = new THREE.Mesh(geo, mat);
     scene.add(chassisMesh);
 
-    // Tachimetro
+    // --- TACHIMETRO ---
     const canvas = document.createElement('canvas');
-    canvas.width = 128; canvas.height = 64;
+    canvas.width = 256; canvas.height = 128;
     speedoCtx = canvas.getContext('2d');
     speedoTexture = new THREE.CanvasTexture(canvas);
-    const speedoPlane = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), new THREE.MeshBasicMaterial({ map: speedoTexture }));
-    speedoPlane.rotation.y = Math.PI;
-    speedoPlane.position.set(0, 0, CONFIG.chassisLength/2 + 0.01);
+
+    // Plane sul retro
+    const speedoPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.6, 0.8),
+                                       new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
+    );
+    // Posizionato sul retro (+Z)
+    speedoPlane.position.set(0, 0, CONFIG.chassisLength/2 + 0.02);
+    // FIX: Rimosso rotation.y = Math.PI. Ora guarda verso il retro (camera)
+    speedoPlane.rotation.y = 0;
     chassisMesh.add(speedoPlane);
 
     // 2. Veicolo
@@ -221,15 +230,15 @@ function createCar(wheelMat) {
     });
 
     const options = {
-        radius: 0.4,
+        radius: 0.45, // Ruote un po' più grandi
         directionLocal: new CANNON.Vec3(0, -1, 0),
-        suspensionStiffness: 30,
-        suspensionRestLength: 0.3,
-        frictionSlip: 1.4,
+        suspensionStiffness: CONFIG.suspensionStiffness,
+        suspensionRestLength: CONFIG.suspensionRestLength,
+        frictionSlip: CONFIG.frictionSlip,
         dampingRelaxation: 2.3,
         dampingCompression: 4.4,
         maxSuspensionForce: 100000,
-        rollInfluence: 0.01,
+        rollInfluence: 0.01, // Impedisce il ribaltamento laterale
         axleLocal: new CANNON.Vec3(-1, 0, 0),
         chassisConnectionPointLocal: new CANNON.Vec3(1, 1, 0),
         maxSuspensionTravel: 0.3,
@@ -237,17 +246,19 @@ function createCar(wheelMat) {
         useCustomSlidingRotationalSpeed: true
     };
 
-    // Aggiungi 4 ruote
+    // Aggiunta Ruote - FIX POSIZIONE VERTICALE
+    // Alziamo il punto di connessione (Y=0 invece di negativo)
+    // Questo fa sì che il peso del telaio "penda" sotto le sospensioni = stabilità
     const w = CONFIG.chassisWidth / 2;
-    const h = -CONFIG.chassisHeight / 2;
-    const l = CONFIG.chassisLength / 2 - 0.5;
+    const h = 0; // Connessione al centro altezza, non sotto
+    const l = CONFIG.chassisLength / 2 - 0.6;
 
-    // FL, FR (Fronte - Indici 0 e 1 per lo sterzo)
+    // FL, FR
     options.chassisConnectionPointLocal.set(w - 0.2, h, -l);
     vehicle.addWheel(options);
     options.chassisConnectionPointLocal.set(-w + 0.2, h, -l);
     vehicle.addWheel(options);
-    // RL, RR (Retro - Indici 2 e 3 per la trazione)
+    // RL, RR
     options.chassisConnectionPointLocal.set(w - 0.2, h, l);
     vehicle.addWheel(options);
     options.chassisConnectionPointLocal.set(-w + 0.2, h, l);
@@ -256,9 +267,9 @@ function createCar(wheelMat) {
     vehicle.addToWorld(world);
 
     // Mesh Ruote
-    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 12);
+    const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.5, 16);
     wheelGeo.rotateZ(Math.PI/2);
-    const wheelMatVis = new THREE.MeshStandardMaterial({ color: 0x222222 });
+    const wheelMatVis = new THREE.MeshStandardMaterial({ color: 0x333333 });
 
     vehicle.wheelInfos.forEach(w => {
         const mesh = new THREE.Mesh(wheelGeo, wheelMatVis);
@@ -270,31 +281,48 @@ function createCar(wheelMat) {
 // --- LOOP PRINCIPALE ---
 function animate() {
     requestAnimationFrame(animate);
-
-    // Fisica Step Fisso
     world.step(1/60);
 
     if (vehicle && chassisMesh) {
-        // Sync Grafica-Fisica
         chassisMesh.position.copy(chassisBody.position);
         chassisMesh.quaternion.copy(chassisBody.quaternion);
 
-        // Controlli
-        const force = keys.w ? CONFIG.engineForce : (keys.s ? -CONFIG.engineForce / 2 : 0);
-        vehicle.applyEngineForce(force, 2);
-        vehicle.applyEngineForce(force, 3);
+        // Calcolo velocità locale (Avanti/Indietro)
+        const localVelocity = new CANNON.Vec3(0,0,0);
+        const invQuat = chassisBody.quaternion.inverse();
+        invQuat.vmult(chassisBody.velocity, localVelocity);
+        const forwardSpeed = -localVelocity.z;
 
-        const steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
-        vehicle.setSteeringValue(steer, 0);
-        vehicle.setSteeringValue(steer, 1);
+        // Input & Fisica
+        let engine = 0;
+        let brake = 0;
 
-        const brake = keys.space ? CONFIG.brakeForce : 0;
+        if (keys.w) {
+            engine = CONFIG.engineForce;
+        } else if (keys.s) {
+            // Se vai avanti (>1 m/s) frena, altrimenti retromarcia
+            if (forwardSpeed > 1.0) brake = CONFIG.brakeForce;
+            else engine = -CONFIG.engineForce / 2;
+        }
+
+        if (keys.space) brake = CONFIG.brakeForce * 2;
+
+        // Trazione integrale
+        vehicle.applyEngineForce(engine, 0);
+        vehicle.applyEngineForce(engine, 1);
+        vehicle.applyEngineForce(engine, 2);
+        vehicle.applyEngineForce(engine, 3);
+
         vehicle.setBrake(brake, 0);
         vehicle.setBrake(brake, 1);
         vehicle.setBrake(brake, 2);
         vehicle.setBrake(brake, 3);
 
-        // Update Ruote
+        const steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
+        vehicle.setSteeringValue(steer, 0);
+        vehicle.setSteeringValue(steer, 1);
+
+        // Update Ruote Mesh
         for (let i=0; i<vehicle.wheelInfos.length; i++) {
             vehicle.updateWheelTransform(i);
             const t = vehicle.wheelInfos[i].worldTransform;
@@ -302,31 +330,37 @@ function animate() {
             vehicle.wheelInfos[i].mesh.quaternion.copy(t.quaternion);
         }
 
-        // Camera Follow
-        const camOffset = new THREE.Vector3(0, 4, 8);
+        // Camera Follow (più distante per vedere il tachimetro)
+        const camOffset = new THREE.Vector3(0, 3.5, 7.5);
         camOffset.applyMatrix4(chassisMesh.matrixWorld);
         camera.position.lerp(camOffset, 0.1);
-        camera.lookAt(chassisMesh.position);
+        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1, chassisMesh.position.z);
 
-        // Respawn automatico se cadi
         if (chassisBody.position.y < -10) respawn();
-        
-        // Tachimetro
-        const kmh = Math.floor(chassisBody.velocity.length() * 3.6);
-        speedoCtx.fillStyle = 'black';
-        speedoCtx.fillRect(0,0,128,64);
-        speedoCtx.fillStyle = 'white';
-        speedoCtx.font = 'bold 40px Arial';
-        speedoCtx.fillText(kmh, 40, 45);
+
+        // --- TACHIMETRO VISIBILE ---
+        const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
+
+        // Sfondo
+        speedoCtx.fillStyle = '#000000';
+        speedoCtx.fillRect(0,0,256,128);
+
+        // Testo Giallo Fluo "Digital"
+        speedoCtx.fillStyle = '#ccff00';
+        speedoCtx.font = 'bold 110px Courier New';
+        speedoCtx.textAlign = 'center';
+        speedoCtx.textBaseline = 'middle';
+        // Ombra testo per effetto glow
+        speedoCtx.shadowColor = '#ccff00';
+        speedoCtx.shadowBlur = 10;
+
+        speedoCtx.fillText(kmh.toString(), 128, 64);
         speedoTexture.needsUpdate = true;
-        
-        // Check Checkpoints (Semplificato)
+
+        // Checkpoints logic (invariata)
         trackBodies.forEach(b => {
             if(b.isCheckpoint) {
-                const dx = Math.abs(b.position.x - chassisBody.position.x);
-                const dz = Math.abs(b.position.z - chassisBody.position.z);
-                if(dx < 5 && dz < 5) {
-                    // Update checkpoint
+                if(b.position.distanceTo(chassisBody.position) < 8) {
                     if(b.position.distanceTo(lastCheckpointPosition) > 2) {
                         lastCheckpointPosition.copy(b.position);
                         lastCheckpointPosition.y += 2;
@@ -340,7 +374,6 @@ function animate() {
         });
     }
 
-    // UI Timer
     if (isRacing) {
         const t = performance.now() - timerStart;
         const s = Math.floor(t/1000);
