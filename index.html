@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Low Poly Racer - TM Clone</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Canvas del gioco -->
+    <div id="game-container"></div>
+
+    <!-- Interfaccia Utente (HUD) -->
+    <div id="ui-layer">
+        <div id="timer">00:00.000</div>
+        <div id="best-time">Best: --:--.---</div>
+        <div id="controls-hint">
+            WASD/Frecce: Guida | SPACE: Freno | ENTER: Checkpoint | DEL: Riavvia | <button id="gen-btn">Nuova Pista</button>
+        </div>
+        <div id="message"></div>
+    </div>
+
+    <!-- Logica del gioco (Moduli ES) -->
+    <!-- Import map per gestire le dipendenze esterne senza npm -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
