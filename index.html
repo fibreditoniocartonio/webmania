@@ -3,34 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Low Poly Racer - TM Clone</title>
+    <title>Low Poly Racer - Fix</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Canvas del gioco -->
     <div id="game-container"></div>
 
-    <!-- Interfaccia Utente (HUD) -->
+    <!-- Interfaccia Utente -->
     <div id="ui-layer">
         <div id="timer">00:00.000</div>
         <div id="best-time">Best: --:--.---</div>
         <div id="controls-hint">
-            WASD/Frecce: Guida | SPACE: Freno | ENTER: Checkpoint | DEL: Riavvia | <button id="gen-btn">Nuova Pista</button>
+            WASD/Frecce: Guida | SPAZIO: Freno | INVIO: Checkpoint | CANC: Riavvia | <button id="gen-btn">Nuova Pista</button>
         </div>
         <div id="message"></div>
+        <!-- Box per errori -->
+        <div id="error-log" style="color: red; background: rgba(0,0,0,0.8); display: none; padding: 10px; position: absolute; top:0; left:0; z-index:999;"></div>
     </div>
 
-    <!-- Logica del gioco (Moduli ES) -->
-    <!-- Import map per gestire le dipendenze esterne senza npm -->
+    <!-- Import Map corretta per ES Modules -->
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+                "three": "https://esm.sh/three@0.160.0",
+                "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://esm.sh/cannon-es@0.20.0"
             }
         }
     </script>
+
+    <!-- Gestore errori globale -->
+    <script>
+        window.onerror = function(msg, source, lineno, colno, error) {
+            const el = document.getElementById('error-log');
+            el.style.display = 'block';
+            el.innerHTML += `<p>Error: ${msg} <br> Line: ${lineno}</p>`;
+        };
+    </script>
+
     <script type="module" src="script.js"></script>
 </body>
 </html>
