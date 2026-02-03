@@ -21,7 +21,7 @@ const CONFIG = {
 let scene, camera, renderer, world;
 let vehicle, chassisMesh;
 let chassisBody; // Riferimento diretto al corpo fisico
-let lastCheckpointPosition = new CANNON.Vec3(50, 5, 0); // Più in alto per sicurezza
+let lastCheckpointPosition = new CANNON.Vec3(0, 5, 0);
 let lastCheckpointQuaternion = new CANNON.Quaternion();
 let timerStart = 0;
 let isRacing = false;
@@ -90,6 +90,15 @@ function init() {
         // UI Listener
         document.getElementById('gen-btn').addEventListener('click', () => {window.location.reload();})
 
+        setTimeout(() => {
+            // Forza la posizione al centro del primo blocco (-10)
+            lastCheckpointPosition.set(0, 5, -10); 
+            lastCheckpointQuaternion.set(0, 0, 0, 1);
+            respawn();
+            console.log("Auto posizionata allo start.");
+        }, 100);
+
+
         console.log("Gioco Inizializzato Correttamente");
 
     } catch (e) {
@@ -117,12 +126,10 @@ const RAMP_ANGLE = Math.PI / 12;
 const RAMP_HEIGHT = BLOCK_SIZE * Math.tan(RAMP_ANGLE);
 const TURN_RADIUS = BLOCK_SIZE;
 
-function createBlock(type, x, y, z, dirIndex, matPhysics, matTurbo) {
-    const isCurve = type === MODULES.TURN_LEFT || type === MODULES.TURN_RIGHT;
-
+function createBlock(type, x, y, z, quaternion, matPhysics, matTurbo) {
     const container = new THREE.Object3D();
     container.position.set(x, y, z);
-    container.rotation.y = dirIndex * (Math.PI / 2);
+    container.quaternion.copy(quaternion);
     scene.add(container);
     trackMeshes.push(container);
 
@@ -130,114 +137,126 @@ function createBlock(type, x, y, z, dirIndex, matPhysics, matTurbo) {
     body.position.copy(container.position);
     body.quaternion.copy(container.quaternion);
 
-    const matRoad = new THREE.MeshStandardMaterial({ color: 0x444444 });
-    const matWall = new THREE.MeshStandardMaterial({ color: 0x888888 });
+    const matRoad = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.6 });
+    const matWall = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.7 });
+    const isTurbo = type === MODULES.TURBO;
+    if(isTurbo) matRoad.color.setHex(0x00ffff); // Colore diverso per turbo
 
-    // ====================================================================
-    // --- BLOCCHI CURVI (Logica Stabile) ---
-    // ====================================================================
-    if (isCurve) {
-        const segments = 12;
-        const roadWidth = BLOCK_SIZE;
+    // Helper per creare muri e pavimento
+    const addSegment = (posOffset, rotQ, size, isWall = false) => {
+        // Fisica
+        const shape = new CANNON.Box(new CANNON.Vec3(size.x/2, size.y/2, size.z/2));
+        // Nota: body.addShape usa offset locali rispetto al corpo (che è a 0,0,0 relativo al container)
+        body.addShape(shape, posOffset, rotQ);
 
-        // La curva è un quarto di anello. Il suo centro è spostato
-        // in modo che l'ingresso sia sempre a (0,0,0) locale.
-        const innerRadius = roadWidth / 2;
-        const outerRadius = roadWidth * 1.5;
+        // Visuale
+        const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
+        const mesh = new THREE.Mesh(geo, isWall ? matWall : matRoad);
+        mesh.position.copy(posOffset);
+        mesh.quaternion.copy(rotQ);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        container.add(mesh);
+    };
 
-        const shape = new THREE.Shape();
-        const angle = Math.PI / 2;
-        shape.moveTo(innerRadius, 0);
-        shape.absarc(0, 0, outerRadius, 0, angle, false);
-        shape.lineTo(innerRadius * Math.cos(angle), innerRadius * Math.sin(angle));
-        shape.absarc(0, 0, innerRadius, angle, 0, true);
-
-        const roadGeo = new THREE.ShapeGeometry(shape, segments);
-        const roadMesh = new THREE.Mesh(roadGeo, matRoad);
-        roadMesh.rotation.x = -Math.PI / 2;
-
-        // POSIZIONAMENTO CHIAVE: sposta la geometria in modo che l'inizio
-        // della curva coincida con l'origine del container.
-        if (type === MODULES.TURN_LEFT) {
-            roadMesh.position.set(outerRadius, 0, 0);
-        } else { // TURN_RIGHT
-            roadMesh.position.set(outerRadius, 0, -BLOCK_SIZE);
-            roadMesh.scale.z = -1;
-        }
-        container.add(roadMesh);
-
-        // FISICA: Usa una griglia di Box semplici per approssimare la curva.
-        // È molto più veloce e stabile di un Trimesh per la fisica delle auto.
-        for (let i = 0; i <= segments; i++) {
-            const t = (i / segments) * (Math.PI / 2);
-            const x_pos = outerRadius - (roadWidth * Math.cos(t));
-            const z_pos = -(roadWidth * Math.sin(t));
-            const angle = (type === MODULES.TURN_LEFT) ? -t : t;
-
-            const segmentShape = new CANNON.Box(new CANNON.Vec3(BLOCK_SIZE / segments, 0.25, BLOCK_SIZE / 2.2));
-            const q = new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0,1,0), angle);
-
-            const offset = new CANNON.Vec3(x_pos, 0, z_pos);
-            if(type === MODULES.TURN_RIGHT) offset.z += BLOCK_SIZE;
-
-            body.addShape(segmentShape, offset, q);
-        }
-    }
-    // ====================================================================
-    // --- BLOCCHI DRITTI E RAMPE (Logica Semplice) ---
-    // ====================================================================
-    else {
+    // --- COSTRUZIONE BLOCCHI ---
+    
+    // 1. DRITTI e RAMPE (Geometria Lineare)
+    if ([MODULES.START, MODULES.STRAIGHT, MODULES.RAMP_UP, MODULES.RAMP_DOWN, MODULES.TURBO, MODULES.CHECKPOINT, MODULES.FINISH].includes(type)) {
         let slope = 0;
         if (type === MODULES.RAMP_UP) slope = -RAMP_ANGLE;
-        if (type === MODULES.RAMP_DOWN) slope = RAMP_ANGLE;
+        if (type === MODULES.RAMP_DOWN) slope = RAMP_ANGLE; // Torna piatto o scende
+        
+        // Calcoliamo la lunghezza "reale" per coprire la diagonale se è una rampa, 
+        // ma per semplicità low-poly usiamo blocchi che si compenetrano leggermente.
+        const segmentLen = BLOCK_SIZE + 0.5; // +0.5 per evitare gap visivi (z-fighting fix)
+        
+        const localRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), slope);
+        const offset = new THREE.Vector3(0, 0, -BLOCK_SIZE/2);
+        offset.applyQuaternion(localRot); // Sposta il centro in base alla pendenza
 
-        const slopeQuat = new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(1, 0, 0), slope);
+        // Pavimento
+        addSegment(offset, localRot, new THREE.Vector3(BLOCK_SIZE, 0.5, segmentLen));
 
-        // --- FIX GEOMETRICO RAMPE ---
-        // Problema: Ruotando il blocco dal suo centro, l'inizio della rampa si disallinea (si alza o abbassa).
-        // Soluzione: Calcoliamo un offset verticale correttivo.
-        // Formula: Spostiamo il blocco in Y in modo che il punto iniziale (Start) sia sempre a Y=0.
-        // Math.sin(slope) ci dà la componente verticale della rotazione su metà lunghezza.
-        const verticalOffset = (BLOCK_SIZE / 2) * Math.sin(slope);
+        // Muri (solo se non è start/finish per estetica pulita, o sempre)
+        const wallH = WALL_HEIGHT;
+        const wallOffL = new THREE.Vector3(-BLOCK_SIZE/2 + 0.5, wallH/2, -BLOCK_SIZE/2).applyQuaternion(localRot);
+        const wallOffR = new THREE.Vector3(BLOCK_SIZE/2 - 0.5, wallH/2, -BLOCK_SIZE/2).applyQuaternion(localRot);
+        
+        addSegment(wallOffL, localRot, new THREE.Vector3(1, wallH, segmentLen), true);
+        addSegment(wallOffR, localRot, new THREE.Vector3(1, wallH, segmentLen), true);
+        
+        // Checkpoint / Finish Line Visuals
+        if(type === MODULES.FINISH || type === MODULES.CHECKPOINT) {
+            const archGeo = new THREE.TorusGeometry(10, 1, 16, 32, Math.PI);
+            const archMat = new THREE.MeshStandardMaterial({ color: type === MODULES.FINISH ? 0x00ff00 : 0xffff00 });
+            const arch = new THREE.Mesh(archGeo, archMat);
+            arch.position.set(0, 0, -BLOCK_SIZE/2);
+            arch.scale.z = 0.5;
+            container.add(arch);
+            
+            // Logica body flag
+            if(type === MODULES.FINISH) body.isFinish = true;
+            if(type === MODULES.CHECKPOINT) body.isCheckpoint = true;
+        }
+        if(isTurbo) body.isTurbo = true;
 
-        // Il centro del blocco è spostato indietro (-Z) e corretto in altezza (Y)
-        const offset = new CANNON.Vec3(0, verticalOffset, -BLOCK_SIZE / 2);
-
-        // 1. PAVIMENTO
-        const floorShape = new CANNON.Box(new CANNON.Vec3(BLOCK_SIZE / 2, 0.25, BLOCK_SIZE / 2));
-        const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK_SIZE, 0.5, BLOCK_SIZE), matRoad);
-
-        // Applichiamo posizione e rotazione
-        floorMesh.position.copy(offset);
-        floorMesh.rotation.x = slope;
-        container.add(floorMesh);
-
-        body.addShape(floorShape, offset, slopeQuat);
-
-        // 2. MURI (Ora visibili!)
-        // Geometria Three.js per i muri (Larghezza 1, Altezza WALL_HEIGHT, Profondità BLOCK_SIZE)
-        const wallGeo = new THREE.BoxGeometry(1, WALL_HEIGHT, BLOCK_SIZE);
-
-        // Calcolo posizioni muri (Sinistra e Destra)
-        // Nota: Aggiungiamo verticalOffset anche qui per seguire l'inclinazione della rampa
-        const wallLeftPos = new CANNON.Vec3(-(BLOCK_SIZE / 2 - 0.5), WALL_HEIGHT / 2 + verticalOffset, -BLOCK_SIZE/2);
-        const wallRightPos = new CANNON.Vec3(BLOCK_SIZE / 2 - 0.5, WALL_HEIGHT / 2 + verticalOffset, -BLOCK_SIZE/2);
-
-        // Creazione Mesh Muri
-        const wallMeshL = new THREE.Mesh(wallGeo, matWall);
-        wallMeshL.position.copy(wallLeftPos);
-        wallMeshL.rotation.x = slope; // Il muro deve ruotare con la rampa
-        container.add(wallMeshL);
-
-        const wallMeshR = new THREE.Mesh(wallGeo, matWall);
-        wallMeshR.position.copy(wallRightPos);
-        wallMeshR.rotation.x = slope;
-        container.add(wallMeshR);
-
-        // Creazione Fisica Muri
-        const wallShape = new CANNON.Box(new CANNON.Vec3(0.5, WALL_HEIGHT / 2, BLOCK_SIZE / 2));
-        body.addShape(wallShape, wallLeftPos, slopeQuat);
-        body.addShape(wallShape, wallRightPos, slopeQuat);
+    } 
+    // 2. CURVE (Geometria Segmentata per aderenza perfetta Fisica-Grafica)
+    else if (type === MODULES.TURN_LEFT || type === MODULES.TURN_RIGHT) {
+        const isLeft = type === MODULES.TURN_LEFT;
+        const segments = 10; // Numero di segmenti per fare 90 gradi
+        const angleStep = (Math.PI / 2) / segments;
+        const radius = BLOCK_SIZE; // Raggio curva uguale alla griglia
+        
+        // Il centro di rotazione. 
+        // Se vado dritto (-Z) e giro a sinistra (-X), il centro è a (-Radius, 0, 0).
+        // Se giro a destra (+X), il centro è a (+Radius, 0, 0).
+        const centerX = isLeft ? -radius : radius;
+        
+        for(let i=0; i<segments; i++) {
+            // Angolo corrente e prossimo per interpolare bene (o usiamo box tangenti)
+            const theta = i * angleStep;
+            
+            // Calcolo posizione locale lungo l'arco
+            // Formula rotazione punto (0,0) attorno a (centerX, 0)
+            // Start: (0,0,0). End desiderato: (+/- Radius, 0, -Radius)
+            
+            // Logica Semplificata: Coordinate polari rispetto al centro di curvatura
+            // Angolo parte da 0 (sull'asse X locale rispetto al centro) a 90.
+            const currentAngle = isLeft ? -theta : (Math.PI + theta); 
+            // Aspetta, semplifichiamo:
+            // Usiamo step progressivi.
+            
+            const alpha = theta + angleStep/2; // Angolo al centro del segmento
+            
+            // Coordinate rispetto all'inizio del blocco (0,0,0)
+            // Dx = R * (1 - cos(alpha)) * sign
+            // Dz = -R * sin(alpha)
+            
+            const dx = radius * (1 - Math.cos(alpha)) * (isLeft ? -1 : 1);
+            const dz = -radius * Math.sin(alpha);
+            
+            const segPos = new THREE.Vector3(dx, 0, dz);
+            
+            // Rotazione del segmento: Deve seguire la tangente
+            const rotY = alpha * (isLeft ? 1 : -1); 
+            const segRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), rotY);
+            
+            // Dimensione segmento (Arc Length approx)
+            // Corda = 2*R*sin(step/2).
+            const segLen = (2 * radius * Math.sin(angleStep/2)) + 0.2; // +0.2 overlap
+            
+            // Pavimento
+            addSegment(segPos, segRot, new THREE.Vector3(BLOCK_SIZE, 0.5, segLen));
+            
+            // Muri (Offset relativo al centro del segmento rotato)
+            const wLeft = new THREE.Vector3(-BLOCK_SIZE/2 + 0.5, WALL_HEIGHT/2, 0).applyQuaternion(segRot).add(segPos);
+            const wRight = new THREE.Vector3(BLOCK_SIZE/2 - 0.5, WALL_HEIGHT/2, 0).applyQuaternion(segRot).add(segPos);
+            
+            addSegment(wLeft, segRot, new THREE.Vector3(1, WALL_HEIGHT, segLen), true);
+            addSegment(wRight, segRot, new THREE.Vector3(1, WALL_HEIGHT, segLen), true);
+        }
     }
 
     world.addBody(body);
@@ -245,90 +264,157 @@ function createBlock(type, x, y, z, dirIndex, matPhysics, matTurbo) {
 }
 
 function generateTrack(matPhysics, matTurbo) {
+    // Pulizia
     trackMeshes.forEach(m => scene.remove(m));
     trackBodies.forEach(b => world.removeBody(b));
     trackMeshes.length = 0;
     trackBodies.length = 0;
 
-    const trackLength = 50;
+    const trackLength = 40;
+    
+    // Cursore: Posizione e Rotazione attuali (Connettore USCITA del blocco precedente)
     let cursor = {
-        position: new THREE.Vector3(0, 0, 0),
-        quaternion: new THREE.Quaternion()
+        pos: new THREE.Vector3(0, 0, 0),
+        quat: new THREE.Quaternion(),
+        pitchIndex: 0 // 0 = piano, 1 = salita, -1 = discesa (non usato qui ma logico)
     };
+    
+    // Griglia occupazione approssimativa
     const occupied = new Set();
-    const getKey = (pos) => `${Math.round(pos.x)},${Math.round(pos.y)},${Math.round(pos.z)}`;
+    const markOccupied = (pos) => occupied.add(`${Math.round(pos.x/10)},${Math.round(pos.z/10)}`);
+    markOccupied(cursor.pos);
 
-    // Definiamo i punti di uscita LOCALI per ogni tipo di blocco
-    const exits = {
-        [MODULES.STRAIGHT]: { pos: new THREE.Vector3(0, 0, -BLOCK_SIZE), quat: new THREE.Quaternion() },
-        [MODULES.RAMP_UP]: { pos: new THREE.Vector3(0, RAMP_HEIGHT, -BLOCK_SIZE), quat: new THREE.Quaternion() },
-        [MODULES.RAMP_DOWN]: { pos: new THREE.Vector3(0, -RAMP_HEIGHT, -BLOCK_SIZE), quat: new THREE.Quaternion() },
-        [MODULES.TURBO]: { pos: new THREE.Vector3(0, 0, -BLOCK_SIZE), quat: new THREE.Quaternion() },
-        [MODULES.CHECKPOINT]: { pos: new THREE.Vector3(0, 0, -BLOCK_SIZE), quat: new THREE.Quaternion() },
-        [MODULES.TURN_LEFT]: {
-            pos: new THREE.Vector3(-BLOCK_SIZE, 0, -BLOCK_SIZE),
-            quat: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
-        },
-        [MODULES.TURN_RIGHT]: {
-            pos: new THREE.Vector3(BLOCK_SIZE, 0, -BLOCK_SIZE),
-            quat: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2)
-        }
-    };
-
-    // Funzione per calcolare il prossimo cursore
-    function getNextCursor(currentCursor, moveType) {
-        const exit = exits[moveType];
-        const newPos = currentCursor.position.clone().add(exit.pos.clone().applyQuaternion(currentCursor.quaternion));
-        const newQuat = currentCursor.quaternion.clone().multiply(exit.quat);
-        return { position: newPos, quaternion: newQuat };
-    }
-
-    // START
-    const startDirIndex = 0;
-    createBlock(MODULES.START, cursor.position.x, cursor.position.y, cursor.position.z, startDirIndex, matPhysics, matTurbo);
-    occupied.add(getKey(cursor.position));
-    cursor = getNextCursor(cursor, MODULES.STRAIGHT);
-    createBlock(MODULES.STRAIGHT, cursor.position.x, cursor.position.y, cursor.position.z, startDirIndex, matPhysics, matTurbo);
-    occupied.add(getKey(cursor.position));
-
-    for (let i = 2; i < trackLength; i++) {
+    // Creiamo lo Start
+    createBlock(MODULES.START, cursor.pos.x, cursor.pos.y, cursor.pos.z, cursor.quat, matPhysics, matTurbo);
+    // Avanziamo il cursore manualmente per lo start (è un dritto)
+    cursor.pos.add(new THREE.Vector3(0, 0, -BLOCK_SIZE).applyQuaternion(cursor.quat));
+    
+    // Stato Pendenza corrente (in gradi discreti o unità)
+    let currentSlope = 0; // 0 = Piano. 1 = Verso l'alto.
+    
+    for (let i = 0; i < trackLength; i++) {
         const possibleMoves = [];
-        const moveTypes = [MODULES.STRAIGHT, MODULES.TURN_LEFT, MODULES.TURN_RIGHT, MODULES.RAMP_UP, MODULES.RAMP_DOWN];
+        
+        // Definiamo le regole di uscita per ogni pezzo
+        // Offset locale per raggiungere l'inizio del prossimo blocco
+        
+        // REGOLE DI PENDENZA:
+        // Se Slope != 0 (siamo su rampa o in alto inclinati), NON possiamo curvare.
+        // Dobbiamo usare STRAIGHT (mantiene pendenza) o RAMP (cambia pendenza).
+        
+        const canTurn = (currentSlope === 0);
+        
+        // 1. STRAIGHT
+        possibleMoves.push({ 
+            type: MODULES.STRAIGHT, 
+            weight: 5,
+            nextSlope: currentSlope, // Mantiene la pendenza attuale
+            calcOffset: () => new THREE.Vector3(0, 0, -BLOCK_SIZE),
+            calcRot: () => new THREE.Quaternion() // Nessuna rotazione aggiuntiva
+        });
 
-        for (const type of moveTypes) {
-            const next = getNextCursor(cursor, type);
-            if (!occupied.has(getKey(next.position))) {
-                if (type === MODULES.RAMP_UP && cursor.position.y < RAMP_HEIGHT * 4) possibleMoves.push({ type, next, weight: 1 });
-                else if (type === MODULES.RAMP_DOWN && cursor.position.y >= RAMP_HEIGHT) possibleMoves.push({ type, next, weight: 1 });
-                else if (type === MODULES.STRAIGHT) possibleMoves.push({ type, next, weight: 4 });
-                else if (type === MODULES.TURN_LEFT || type === MODULES.TURN_RIGHT) possibleMoves.push({ type, next, weight: 2 });
+        // 2. RAMPE
+        // Se siamo piani, possiamo salire o scendere
+        if (currentSlope === 0) {
+            possibleMoves.push({ 
+                type: MODULES.RAMP_UP, weight: 2, nextSlope: 1,
+                calcOffset: () => new THREE.Vector3(0, RAMP_HEIGHT, -BLOCK_SIZE).applyAxisAngle(new THREE.Vector3(1,0,0), -RAMP_ANGLE), // Trucco geometrico
+                // La rampa ruota l'intero sistema di coordinate locale verso l'alto
+                calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -RAMP_ANGLE)
+            });
+            // RAMP_DOWN disabilitato se siamo a terra (y < 5)
+            if(cursor.pos.y > 5) {
+                possibleMoves.push({ 
+                    type: MODULES.RAMP_DOWN, weight: 2, nextSlope: -1,
+                    calcOffset: () => new THREE.Vector3(0, -RAMP_HEIGHT, -BLOCK_SIZE), // Semplificazione
+                    calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), RAMP_ANGLE)
+                });
             }
+        } 
+        // Se stiamo salendo (Slope 1), possiamo tornare piani con RAMP_DOWN (che qui agisce da raddrizzatore)
+        else if (currentSlope === 1) {
+             possibleMoves.push({ 
+                type: MODULES.RAMP_DOWN, weight: 10, nextSlope: 0, // Obbligatorio o quasi appiattirsi
+                calcOffset: () => new THREE.Vector3(0, 0, -BLOCK_SIZE), // Esci dritto relativo al blocco inclinato
+                calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), RAMP_ANGLE) // Annulla la salita
+            });
+        }
+        // Se stiamo scendendo (Slope -1), appiattiamo con RAMP_UP
+        else if (currentSlope === -1) {
+             possibleMoves.push({ 
+                type: MODULES.RAMP_UP, weight: 10, nextSlope: 0,
+                calcOffset: () => new THREE.Vector3(0, 0, -BLOCK_SIZE),
+                calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -RAMP_ANGLE)
+            });
         }
 
-        if (possibleMoves.length === 0) {
-            const dir = new THREE.Euler().setFromQuaternion(cursor.quaternion).y;
-            createBlock(MODULES.FINISH, cursor.position.x, cursor.position.y, cursor.position.z, dir / (Math.PI/2), matPhysics, matTurbo);
-            break;
+        // 3. CURVE (Solo se piani)
+        if (canTurn) {
+            possibleMoves.push({ 
+                type: MODULES.TURN_LEFT, weight: 3, nextSlope: 0,
+                calcOffset: () => new THREE.Vector3(-BLOCK_SIZE, 0, -BLOCK_SIZE),
+                calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2)
+            });
+            possibleMoves.push({ 
+                type: MODULES.TURN_RIGHT, weight: 3, nextSlope: 0,
+                calcOffset: () => new THREE.Vector3(BLOCK_SIZE, 0, -BLOCK_SIZE),
+                calcRot: () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -Math.PI/2)
+            });
+        }
+        
+        // TURBO (raro, solo dritto e piano)
+        if(canTurn && Math.random() > 0.8) {
+             possibleMoves.push({ 
+                type: MODULES.TURBO, weight: 2, nextSlope: 0,
+                calcOffset: () => new THREE.Vector3(0, 0, -BLOCK_SIZE),
+                calcRot: () => new THREE.Quaternion()
+            });
         }
 
-        const totalWeight = possibleMoves.reduce((sum, move) => sum + move.weight, 0);
-        let rand = Math.random() * totalWeight;
-        let chosenMove = possibleMoves.find(move => (rand -= move.weight) < 0) || possibleMoves[0];
+        // --- SELEZIONE MOSSA ---
+        // Filtriamo mosse che collidono (molto grezzo)
+        const validMoves = possibleMoves.filter(m => {
+            const testOff = m.calcOffset().applyQuaternion(cursor.quat);
+            const testPos = cursor.pos.clone().add(testOff);
+            return !occupied.has(`${Math.round(testPos.x/10)},${Math.round(testPos.z/10)}`);
+        });
 
-        if(i % 8 === 0) chosenMove.type = MODULES.CHECKPOINT;
+        const available = validMoves.length > 0 ? validMoves : possibleMoves; // Fallback se bloccati
+        
+        // Scegli a caso pesato
+        let totalW = available.reduce((s, m) => s + m.weight, 0);
+        let r = Math.random() * totalW;
+        let move = available.find(m => (r -= m.weight) < 0) || available[0];
+        
+        // Override Checkpoint ogni tot blocchi
+        if(i > 0 && i % 10 === 0 && currentSlope === 0) move.type = MODULES.CHECKPOINT;
+        if(i === trackLength - 1) move.type = MODULES.FINISH;
 
-        const euler = new THREE.Euler().setFromQuaternion(cursor.quaternion);
-        const dirIndex = Math.round(euler.y / (Math.PI / 2));
+        // --- APPLICAZIONE ---
+        // 1. Crea il blocco alla posizione corrente del cursore
+        createBlock(move.type, cursor.pos.x, cursor.pos.y, cursor.pos.z, cursor.quat, matPhysics, matTurbo);
+        
+        markOccupied(cursor.pos);
 
-        const finalType = (i === trackLength - 1) ? MODULES.FINISH : chosenMove.type;
-        createBlock(finalType, cursor.position.x, cursor.position.y, cursor.position.z, dirIndex, matPhysics, matTurbo);
-
-        cursor = chosenMove.next;
-        occupied.add(getKey(cursor.position));
+        // 2. Calcola dove finisce questo blocco (nuovo cursore)
+        const localOffset = move.calcOffset();
+        const localRot = move.calcRot();
+        
+        // Posizione Globale = Pos + (Offset ruotato secondo l'orientamento attuale)
+        const globalOffset = localOffset.clone().applyQuaternion(cursor.quat);
+        cursor.pos.add(globalOffset);
+        
+        // Rotazione Globale = Rotazione Attuale * Rotazione Locale
+        cursor.quat.multiply(localRot);
+        cursor.quat.normalize();
+        
+        currentSlope = move.nextSlope;
     }
 
-    lastCheckpointPosition.set(0, 5, 0);
+    // Reset Checkpoint sistema
+    lastCheckpointPosition.set(0, 4, -10); 
     lastCheckpointQuaternion.set(0, 0, 0, 1);
+    
     isRacing = true;
     uiMsg.style.display = 'none';
 }
@@ -341,7 +427,8 @@ function createCar(wheelMat) {
     const chassisShape = new CANNON.Box(new CANNON.Vec3(CONFIG.chassisWidth/2, CONFIG.chassisHeight/2, CONFIG.chassisLength/2));
     chassisBody = new CANNON.Body({ mass: CONFIG.mass });
     chassisBody.addShape(chassisShape);
-    chassisBody.position.set(0, 3, 0);
+    chassisBody.position.set(0, 4, -10);
+    chassisBody.quaternion.set(0, 0, 0, 1);
     chassisBody.angularDamping = 0.5; // Riduce rotazioni incontrollate
     world.addBody(chassisBody);
 
@@ -535,10 +622,23 @@ function animate() {
 
 // --- UTILS ---
 function respawn() {
+    if(!chassisBody) return;
+    
+    // Ferma tutto
     chassisBody.velocity.set(0,0,0);
     chassisBody.angularVelocity.set(0,0,0);
+    
+    // Teletrasporta
     chassisBody.position.copy(lastCheckpointPosition);
     chassisBody.quaternion.copy(lastCheckpointQuaternion);
+    
+    // Reset forze ruote (importante per evitare salti)
+    if(vehicle) {
+        for(let i=0; i<vehicle.wheelInfos.length; i++){
+            vehicle.applyEngineForce(0, i);
+            vehicle.setBrake(0, i);
+        }
+    }
 }
 
 function setupInputs() {
