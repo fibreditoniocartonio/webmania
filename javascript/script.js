@@ -127,11 +127,10 @@ function init() {
 }
 
 // Funzione Helper Countdown
-function startCountdown(callback) {
+function startCountdown(count) {
     currentState = GAME_STATE.START;
     uiCountdown.style.display = 'block';
 
-    let count = 3;
     uiCountdown.innerText = count;
 
     // Blocca auto
@@ -154,9 +153,8 @@ function startCountdown(callback) {
             uiCountdown.style.display = 'none';
             uiCountdown.style.color = "#fff";
             currentState = GAME_STATE.RACING;
-            if (callback) callback();
         }
-    }, 600); // 600ms per un countdown più rapido come richiesto
+    }, 500); // 600ms per un countdown più rapido come richiesto
 }
 
 // --- GENERATORE MODULARE PISTA ---
@@ -516,6 +514,11 @@ function checkTrackCollision(x, z, radiusCheck) {
 
 //funzione principale di generazione pista
 function generateTrack(matPhysics, matTurbo) {
+    // RESET BEST TIME
+    bestTime = null;
+    localStorage.removeItem(BEST_TIME_KEY);
+    uiBestTime.innerText = "Best: --:--.---";
+
     trackMeshes.forEach(m => scene.remove(m));
     trackBodies.forEach(b => world.removeBody(b));
     trackMeshes.length = 0;
@@ -801,7 +804,12 @@ function animate() {
             if (keys.space) brake = CONFIG.brakeForce * 2;
             steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
         } else if (currentState === GAME_STATE.RESPAWNING_FLYING) {
-            engine = CONFIG.engineForce; // Mantiene l'accelerazione durante il rewind
+            //engine = CONFIG.engineForce; // Mantiene l'accelerazione durante il rewind
+            chassisBody.velocity.copy(currentCheckpointData.velocity);
+            chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
+            engine = 0;
+            brake = 0;
+            steer = 0;
         }
 
         vehicle.applyEngineForce(engine, 0);
@@ -907,13 +915,26 @@ function animate() {
 function doRespawn(type) {
     if (!chassisBody) return;
 
-    if (type === 'standing') {
-        chassisBody.position.copy(currentCheckpointData.position);
-        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
+    if (type === 'standing') { //INVIO lungo
+        let count = 3;
+        const blockBody = trackBodies[currentCheckpointData.index];
+        if (blockBody) { //respawn a checkpoint
+            const spawnPosition = blockBody.position.clone();
+            const localOffset = new CANNON.Vec3(0, 2, -TRACK_CFG.blockSize / 2);
+            const rotatedOffset = new CANNON.Vec3();
+            blockBody.quaternion.vmult(localOffset, rotatedOffset);
+            spawnPosition.vadd(rotatedOffset, spawnPosition);
+            chassisBody.position.copy(spawnPosition);
+            chassisBody.quaternion.copy(blockBody.quaternion);
+            count = 1;
+        }else{
+            chassisBody.position.copy(currentCheckpointData.position);
+            chassisBody.quaternion.copy(currentCheckpointData.quaternion);
+        }
         chassisBody.velocity.set(0, 0, 0);
         chassisBody.angularVelocity.set(0, 0, 0);
         gameTime = currentCheckpointData.timeStamp;
-        startCountdown();
+        startCountdown(count);
 
     } else if (type === 'flying') {
         uiMsg.innerText = "Rewind...";
