@@ -16,22 +16,57 @@ const CONFIG = {
     suspensionRestLength: 0.4,
     frictionSlip: 2.0,
 };
+// Enum Stati Gioco
+const GAME_STATE = {
+    START: 0,
+    RACING: 1,
+    RESPAWNING_FLYING: 2, // "Fantasma" automatico
+    FINISHED: 3
+};
+
 
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
-let vehicle, chassisMesh;
-let chassisBody; // Riferimento diretto al corpo fisico
-let lastCheckpointPosition = new CANNON.Vec3(0, 5, 0);
-let lastCheckpointQuaternion = new CANNON.Quaternion();
-let timerStart = 0;
-let isRacing = false;
-let keys = { w: false, a: false, s: false, d: false, space: false };
-const trackMeshes = [];
-const trackBodies = [];
+let vehicle, chassisMesh, chassisBody;
+let trackMeshes = [], trackBodies = [];
 
-// Elementi UI
+// Stato Corrente
+let currentState = GAME_STATE.START;
+let gameTime = 0; // Tempo di gioco effettivo (escluso pause)
+let lastFrameTime = 0;
+let bestTime = null;
+const BEST_TIME_KEY = 'trackmaniaCloneBestTime'; //localstorage
+
+// Gestione Checkpoint Avanzata
+let currentCheckpointData = {
+    position: new CANNON.Vec3(0, 5, -10),
+    quaternion: new CANNON.Quaternion(0, 0, 0, 1),
+    velocity: new CANNON.Vec3(0, 0, 0),
+    angularVelocity: new CANNON.Vec3(0, 0, 0),
+    timeStamp: 0,
+    index: -1 // Per evitare trigger doppi
+};
+
+// Gestione Input Respawn
+let enterPressTime = 0;
+let isEnterPressed = false;
+let keys = { w: false, a: false, s: false, d: false, space: false };
+
+// UI Elements
 const uiTimer = document.getElementById('timer');
 const uiMsg = document.getElementById('message');
+const uiCountdown = document.getElementById('countdown');
+const uiBestTime = document.getElementById('best-time');
+
+// Funzione helper per formattare i millisecondi in stringa M:S:MS
+function formatTime(ms) {
+    if (ms === null || ms === undefined) return '--:--.---';
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const milliseconds = Math.floor(ms % 1000);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+}
 
 function init() {
     try {
@@ -39,11 +74,7 @@ function init() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87CEEB);
         scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
-
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
-        camera.position.set(0, 10, -20); // Posizione iniziale di debug
-        camera.lookAt(0, 0, 0);
-
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
@@ -57,55 +88,75 @@ function init() {
         dirLight.castShadow = true;
         scene.add(dirLight);
 
-        // 2. Setup Cannon.js (Fisica)
+        // 2. Setup Cannon
         world = new CANNON.World();
         world.gravity.set(0, CONFIG.gravity, 0);
         world.broadphase = new CANNON.SAPBroadphase(world);
-
-        // Materiali
         const groundMat = new CANNON.Material('ground');
         const turboMat = new CANNON.Material('turbo');
-
         const wheelMat = new CANNON.Material('wheel');
-        const wheelGroundContact = new CANNON.ContactMaterial(wheelMat, groundMat, {
-            friction: 0.3,
-            restitution: 0,
-            contactEquationStiffness: 1000
-        });
-        const wheelTurboContact = new CANNON.ContactMaterial(wheelMat, turboMat, {
-            friction: 0.3, restitution: 0, contactEquationStiffness: 1000
-        });
+        const wheelGroundContact = new CANNON.ContactMaterial(wheelMat, groundMat, { friction: 0.3, restitution: 0, contactEquationStiffness: 1000 });
+        const wheelTurboContact = new CANNON.ContactMaterial(wheelMat, turboMat, { friction: 0.3, restitution: 0, contactEquationStiffness: 1000 });
         world.addContactMaterial(wheelGroundContact);
         world.addContactMaterial(wheelTurboContact);
 
-        // 3. Setup Gioco
-        setupInputs();
-        generateTrack(groundMat, turboMat);
-        createCar(wheelMat);
 
-        // Avvia loop
-        timerStart = performance.now();
+        // 3. Setup Gioco
+        const savedBest = localStorage.getItem(BEST_TIME_KEY);
+        if (savedBest) {
+            bestTime = parseFloat(savedBest);
+            uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+        }
+
+        setupInputs();
+        createCar(wheelMat);
+        generateTrack(groundMat, turboMat);
+
+        // Inizializza loop
+        lastFrameTime = performance.now();
         animate();
 
-        // UI Listener
-        document.getElementById('gen-btn').addEventListener('click', () => {window.location.reload();})
+        // Listener bottone UI
+        document.getElementById('gen-btn').addEventListener('click', () => resetTrack(true));
 
-        setTimeout(() => {
-            // Forza la posizione al centro del primo blocco (-10)
-            lastCheckpointPosition.set(0, 5, -10); 
-            lastCheckpointQuaternion.set(0, 0, 0, 1);
-            respawn();
-            console.log("Auto posizionata allo start.");
-        }, 100);
-
-
-        console.log("Gioco Inizializzato Correttamente");
+        console.log("Gioco Inizializzato");
 
     } catch (e) {
         console.error(e);
-        document.getElementById('error-log').style.display = 'block';
-        document.getElementById('error-log').innerText = "Errore Init: " + e.message;
     }
+}
+
+// Funzione Helper Countdown
+function startCountdown(callback) {
+    currentState = GAME_STATE.START;
+    uiCountdown.style.display = 'block';
+
+    let count = 3;
+    uiCountdown.innerText = count;
+
+    // Blocca auto
+    if(chassisBody) {
+        chassisBody.velocity.set(0,0,0);
+        chassisBody.angularVelocity.set(0,0,0);
+        chassisBody.position.copy(currentCheckpointData.position);
+        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
+    }
+
+    const interval = setInterval(() => {
+        count--;
+        if (count > 0) {
+            uiCountdown.innerText = count;
+        } else if (count === 0) {
+            uiCountdown.innerText = "GO!";
+            uiCountdown.style.color = "#00ff00";
+        } else {
+            clearInterval(interval);
+            uiCountdown.style.display = 'none';
+            uiCountdown.style.color = "#fff";
+            currentState = GAME_STATE.RACING;
+            if (callback) callback();
+        }
+    }, 600); // 600ms per un countdown più rapido come richiesto
 }
 
 // --- GENERATORE MODULARE PISTA ---
@@ -477,7 +528,8 @@ function generateTrack(matPhysics, matTurbo) {
 
     // START
     createBlock(MODULES.START, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
-    occupiedPoints.push({x:cx, z:cz, r:TRACK_CFG.blockSize}); // Add Start
+    trackBodies[trackBodies.length-1].isStart = true; // Flagghiamo lo start per il reset
+    occupiedPoints.push({x:cx, z:cz, r:TRACK_CFG.blockSize});
 
     // Avanzamento iniziale sicuro
     const startOffset = TRACK_CFG.blockSize;
@@ -602,7 +654,7 @@ function generateTrack(matPhysics, matTurbo) {
         }
     }
 
-    lastCheckpointPosition.set(0, 5, -10);
+    /*lastCheckpointPosition.set(0, 5, -10);
     lastCheckpointQuaternion.set(0, 0, 0, 1);
     isRacing = true;
     uiMsg.style.display = 'none';
@@ -618,7 +670,9 @@ function generateTrack(matPhysics, matTurbo) {
             vehicle.applyEngineForce(0, i);
             vehicle.setBrake(0, i);
         });
-    }
+    }*/
+
+    resetTrack(false); // Inizializza variabili e lancia lo start da fermo
 }
 
 // --- CREAZIONE AUTO ---
@@ -710,64 +764,72 @@ function createCar(wheelMat) {
 // --- LOOP PRINCIPALE ---
 function animate() {
     requestAnimationFrame(animate);
-    world.step(1/60);
+
+    const now = performance.now();
+    const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
+    lastFrameTime = now;
+
+    if (isEnterPressed && currentState === GAME_STATE.RACING) {
+        if (now - enterPressTime > 1500) {
+            isEnterPressed = false;
+            doRespawn('standing');
+        }
+    }
+
+    if (currentState !== GAME_STATE.START) {
+        world.step(1 / CONFIG.stepFrequency);
+        if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.RESPAWNING_FLYING) {
+            gameTime += dt * 1000;
+        }
+    }
 
     if (vehicle && chassisMesh) {
         chassisMesh.position.copy(chassisBody.position);
         chassisMesh.quaternion.copy(chassisBody.quaternion);
 
-        // Calcolo velocità locale (Avanti/Indietro)
         const localVelocity = new CANNON.Vec3(0,0,0);
-        const invQuat = chassisBody.quaternion.inverse();
-        invQuat.vmult(chassisBody.velocity, localVelocity);
+        chassisBody.quaternion.inverse().vmult(chassisBody.velocity, localVelocity);
         const forwardSpeed = -localVelocity.z;
 
-        // Input & Fisica
-        let engine = 0;
-        let brake = 0;
-
-        if (keys.w) {
-            engine = CONFIG.engineForce;
-        } else if (keys.s) {
-            // Se vai avanti (>1 m/s) frena, altrimenti retromarcia
-            if (forwardSpeed > 1.0) brake = CONFIG.brakeForce;
-            else engine = -CONFIG.engineForce / 2;
+        let engine = 0, brake = 0, steer = 0;
+        if (currentState === GAME_STATE.RACING) {
+            if (keys.w) engine = CONFIG.engineForce;
+            else if (keys.s) {
+                if (forwardSpeed > 1.0) brake = CONFIG.brakeForce;
+                else engine = -CONFIG.engineForce / 2;
+            }
+            if (keys.space) brake = CONFIG.brakeForce * 2;
+            steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
+        } else if (currentState === GAME_STATE.RESPAWNING_FLYING) {
+            engine = CONFIG.engineForce; // Mantiene l'accelerazione durante il rewind
         }
 
-        if (keys.space) brake = CONFIG.brakeForce * 2;
-
-        // Trazione integrale
         vehicle.applyEngineForce(engine, 0);
         vehicle.applyEngineForce(engine, 1);
         vehicle.applyEngineForce(engine, 2);
         vehicle.applyEngineForce(engine, 3);
-
         vehicle.setBrake(brake, 0);
         vehicle.setBrake(brake, 1);
         vehicle.setBrake(brake, 2);
         vehicle.setBrake(brake, 3);
-
-        const steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
         vehicle.setSteeringValue(steer, 0);
         vehicle.setSteeringValue(steer, 1);
 
-        // Update Ruote Mesh
         for (let i=0; i<vehicle.wheelInfos.length; i++) {
             vehicle.updateWheelTransform(i);
-            const t = vehicle.wheelInfos[i].worldTransform;
-            vehicle.wheelInfos[i].mesh.position.copy(t.position);
-            vehicle.wheelInfos[i].mesh.quaternion.copy(t.quaternion);
+            vehicle.wheelInfos[i].mesh.position.copy(vehicle.wheelInfos[i].worldTransform.position);
+            vehicle.wheelInfos[i].mesh.quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
         }
 
-        // Camera Follow (più distante per vedere il tachimetro)
-        const camOffset = new THREE.Vector3(0, 3.5, 7.5);
+        const camOffset = new THREE.Vector3(0, 4.0, 8.0);
         camOffset.applyMatrix4(chassisMesh.matrixWorld);
         camera.position.lerp(camOffset, 0.1);
-        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1, chassisMesh.position.z);
+        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
 
-        if (chassisBody.position.y < -10) respawn();
+        if (chassisBody.position.y < -10 && currentState === GAME_STATE.RACING) {
+            doRespawn('standing');
+        }
 
-        // --- TACHIMETRO VISIBILE ---
         const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
         speedoCtx.clearRect(0, 0, 128, 64);
         speedoCtx.fillStyle = '#ffffff';
@@ -777,94 +839,192 @@ function animate() {
         speedoCtx.fillText(kmh.toString(), 64, 32);
         speedoTexture.needsUpdate = true;
 
-        // Checkpoints logic (invariata)
-        trackBodies.forEach(b => {
-            // Distanza semplice
-            if (b.position.distanceTo(chassisBody.position) < TRACK_CFG.blockSize/2 + 2) {
-                if(b.isTurbo) {
-                    vehicle.applyEngineForce(CONFIG.engineForce * 3, 2);
-                    vehicle.applyEngineForce(CONFIG.engineForce * 3, 3);
-                }
-                if(b.isFinish && isRacing) {
-                    isRacing = false;
-                    uiMsg.style.display = 'block';
-                    uiMsg.innerText = "FINISH!\n" + uiTimer.innerText;
-                    uiMsg.style.color = '#00ff00';
-                }
-                // Checkpoint logic esistente...
-                if(b.isCheckpoint) {
-                    if(b.position.distanceTo(chassisBody.position) < 8) {
-                        if(b.position.distanceTo(lastCheckpointPosition) > 5) { // aumentato raggio
-                            lastCheckpointPosition.copy(b.position);
-                            lastCheckpointPosition.y += 3;
-                            lastCheckpointQuaternion.copy(chassisBody.quaternion);
+        trackBodies.forEach((b, index) => {
+            if (!b.isCheckpoint && !b.isFinish && !b.isStart) return;
 
-                            // Visual feedback
-                            const notif = document.getElementById('message');
-                            notif.innerText = "CHECKPOINT";
-                            notif.style.display = 'block';
-                            notif.style.color = '#fff';
-                            setTimeout(() => { if(isRacing) notif.style.display='none'; }, 800);
-                        }
+            const carPosWorld = chassisBody.position;
+            const blockPosWorld = b.position;
+            const blockQuatInverse = b.quaternion.inverse();
+            const relPos = carPosWorld.clone().vsub(blockPosWorld);
+            const localPos = blockQuatInverse.vmult(relPos);
+
+            const archZ = -TRACK_CFG.blockSize / 2;
+            const triggerDepth = 2.0; // Aumentiamo un po' la tolleranza
+            const triggerWidth = TRACK_CFG.blockSize / 2;
+            const triggerHeight = 8;
+
+            const insideTrigger = Math.abs(localPos.x) < triggerWidth &&
+            localPos.y > 0 && localPos.y < triggerHeight &&
+            Math.abs(localPos.z - archZ) < triggerDepth;
+
+            if (insideTrigger) {
+                if(currentState === GAME_STATE.RESPAWNING_FLYING && currentCheckpointData.index === index) {
+                    // PUNTO 4: Ritorna il controllo al giocatore quando ripassa il checkpoint
+                    currentState = GAME_STATE.RACING;
+                    uiMsg.style.display = 'none';
+                }
+
+                if (b.isCheckpoint && currentState === GAME_STATE.RACING && currentCheckpointData.index !== index) {
+                    currentCheckpointData.index = index;
+                    currentCheckpointData.position.copy(chassisBody.position);
+                    currentCheckpointData.quaternion.copy(chassisBody.quaternion);
+                    currentCheckpointData.velocity.copy(chassisBody.velocity);
+                    currentCheckpointData.angularVelocity.copy(chassisBody.angularVelocity);
+                    currentCheckpointData.timeStamp = gameTime;
+
+                    uiMsg.innerText = "CHECKPOINT";
+                    uiMsg.style.display = 'block';
+                    uiMsg.style.color = '#ffff00';
+                    setTimeout(() => { if(currentState === GAME_STATE.RACING) uiMsg.style.display='none'; }, 800);
+                }
+
+                if (b.isFinish && currentState === GAME_STATE.RACING) {
+                    currentState = GAME_STATE.FINISHED;
+
+                    // PUNTO 3: Logica Miglior Tempo
+                    if (bestTime === null || gameTime < bestTime) {
+                        bestTime = gameTime;
+                        localStorage.setItem(BEST_TIME_KEY, bestTime);
+                        uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+                        uiMsg.innerText = "NEW BEST!\n" + formatTime(gameTime);
+                        uiMsg.style.color = '#ffd700';
+                    } else {
+                        uiMsg.innerText = "FINISH!\n" + formatTime(gameTime);
+                        uiMsg.style.color = '#00ff00';
                     }
+                    uiMsg.style.display = 'block';
                 }
             }
         });
     }
 
-    if (isRacing) {
-        const t = performance.now() - timerStart;
-        const s = Math.floor(t/1000);
-        const ms = Math.floor(t % 1000);
-        uiTimer.innerText = `${s}:${ms.toString().padStart(3,'0')}`;
-    }
-
+    // Update UI Timer usando la nuova funzione
+    uiTimer.innerText = formatTime(gameTime);
     renderer.render(scene, camera);
 }
 
 // --- UTILS ---
-function respawn() {
-    if(!chassisBody) return;
-    
-    // Ferma tutto
-    chassisBody.velocity.set(0,0,0);
-    chassisBody.angularVelocity.set(0,0,0);
-    
-    // Teletrasporta
-    chassisBody.position.copy(lastCheckpointPosition);
-    chassisBody.quaternion.copy(lastCheckpointQuaternion);
-    
-    // Reset forze ruote (importante per evitare salti)
-    if(vehicle) {
-        for(let i=0; i<vehicle.wheelInfos.length; i++){
-            vehicle.applyEngineForce(0, i);
-            vehicle.setBrake(0, i);
-        }
+function doRespawn(type) {
+    if (!chassisBody) return;
+
+    if (type === 'standing') {
+        chassisBody.position.copy(currentCheckpointData.position);
+        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
+        chassisBody.velocity.set(0, 0, 0);
+        chassisBody.angularVelocity.set(0, 0, 0);
+        gameTime = currentCheckpointData.timeStamp;
+        startCountdown();
+
+    } else if (type === 'flying') {
+        uiMsg.innerText = "Rewind...";
+        uiMsg.style.display = 'block';
+
+        // Spostiamo indietro la macchina di 0.5 secondi lungo il suo vettore velocità
+        const rewindDuration = 0.5; // secondi
+        const rewindVector = currentCheckpointData.velocity.clone().scale(rewindDuration);
+        const rewindPosition = currentCheckpointData.position.clone().vsub(rewindVector);
+
+        chassisBody.position.copy(rewindPosition);
+        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
+        chassisBody.velocity.copy(currentCheckpointData.velocity);
+        chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
+
+        gameTime = currentCheckpointData.timeStamp;
+        currentState = GAME_STATE.RESPAWNING_FLYING;
     }
+
+    if(vehicle) {
+        vehicle.wheelInfos.forEach((w, i) => {
+            vehicle.applyEngineForce(0, i);
+            vehicle.setBrake(CONFIG.brakeForce, i);
+        });
+    }
+}
+
+function resetTrack(generateNew = false) {
+    if (generateNew) {
+        // Logica esistente di rigenerazione (semplificata chiamando init o reload, ma qui facciamo pulito)
+        window.location.reload();
+        return;
+    }
+
+    // Reset Logico (Delete Key)
+    currentCheckpointData.index = -1;
+    currentCheckpointData.timeStamp = 0;
+
+    // Trova lo start
+    const startBody = trackBodies.find(b => b.isStart);
+    if (startBody) {
+        const spawnPosition = startBody.position.clone();
+        const startOffset = new CANNON.Vec3(0, 0, -TRACK_CFG.blockSize / 2);
+        spawnPosition.vadd(startOffset, spawnPosition);
+        spawnPosition.y += 1.3;
+        currentCheckpointData.position.copy(spawnPosition);
+        currentCheckpointData.quaternion.copy(startBody.quaternion); // La rotazione è corretta
+    } else {
+        // Fallback di sicurezza se non trova lo start (non dovrebbe mai succedere)
+        console.error("Blocco di partenza non trovato! Spawn di default.");
+        currentCheckpointData.position.set(0, 5, -10);
+        currentCheckpointData.quaternion.set(0,0,0,1);
+    }
+    currentCheckpointData.velocity.set(0,0,0);
+    currentCheckpointData.angularVelocity.set(0,0,0);
+
+    gameTime = 0;
+    uiMsg.style.display = 'none';
+    doRespawn('standing');
 }
 
 function setupInputs() {
     window.addEventListener('keydown', e => {
+        if(e.repeat) return;
+
         if(e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
         if(e.key === 's' || e.key === 'ArrowDown') keys.s = true;
         if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
         if(e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
         if(e.key === ' ') keys.space = true;
-        if(e.key === 'Enter') respawn();
+
+        // Logica Invio (Respawn)
+        if(e.key === 'Enter') {
+            // Se la gara è finita o non abbiamo checkpoint (index <= 0 copre sia il -1 iniziale che lo start)
+            // allora l'unica opzione è ricominciare.
+            if (currentState === GAME_STATE.FINISHED || currentCheckpointData.index <= 0) {
+                resetTrack(false);
+                return;
+            }
+
+            if (currentState === GAME_STATE.RACING) {
+                isEnterPressed = true;
+                enterPressTime = performance.now();
+            }
+        }
+
         if(e.key === 'Delete') resetTrack(false);
     });
-    window.addEventListener('keyup', e => {
-        if(e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
-        if(e.key === 's' || e.key === 'ArrowDown') keys.s = false;
-        if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
-        if(e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
-        if(e.key === ' ') keys.space = false;
-    });
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+
+        window.addEventListener('keyup', e => {
+            if(e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
+            if(e.key === 's' || e.key === 'ArrowDown') keys.s = false;
+            if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
+            if(e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
+            if(e.key === ' ') keys.space = false;
+
+            // Rilascio Invio: se premuto per poco tempo -> Flying Respawn
+            if(e.key === 'Enter' && isEnterPressed) {
+                isEnterPressed = false;
+                const duration = performance.now() - enterPressTime;
+                if (duration < 1500 && currentState === GAME_STATE.RACING) {
+                    doRespawn('flying');
+                }
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
 }
 
 // Init
