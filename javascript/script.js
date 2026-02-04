@@ -7,13 +7,13 @@ const CONFIG = {
     gravity: -25,
     chassisWidth: 2.0,
     chassisHeight: 0.5,
-    chassisLength: 4.2,
+    chassisLength: 3.6,
     mass: 500,
     engineForce: 2000,
     brakeForce: 75,
     maxSteerVal: 0.30,
-    suspensionStiffness: 40,
-    suspensionRestLength: 0.4,
+    suspensionStiffness: 45,
+    suspensionRestLength: 0.5,
     frictionSlip: 2.0,
 };
 // Enum Stati Gioco
@@ -498,12 +498,14 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
 
 // Helper per collisioni tra segmenti pista
 const occupiedPoints = []; // Lista di {x, z, r}
-function checkTrackCollision(x, z, radiusCheck) {
-    // Controlla se il punto è troppo vicino a segmenti precedenti
-    // Ignoriamo gli ultimi 2 segmenti aggiunti per permettere la continuità
-    const ignoreLast = 3;
+function checkTrackCollision(x, y, z, radiusCheck) {
+    const ignoreLast = 1;
+    const heightTolerance = 8;
     for(let i = 0; i < occupiedPoints.length - ignoreLast; i++) {
         const p = occupiedPoints[i];
+        if (Math.abs(p.y - y) > heightTolerance) {
+            continue; // Se c'è dislivello sufficiente, non è collisione
+        }
         const dist = Math.sqrt((x - p.x)**2 + (z - p.z)**2);
         if (dist < (p.r + radiusCheck)) {
             return true; // Collisione
@@ -532,7 +534,7 @@ function generateTrack(matPhysics, matTurbo) {
     // START
     createBlock(MODULES.START, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
     trackBodies[trackBodies.length-1].isStart = true; // Flagghiamo lo start per il reset
-    occupiedPoints.push({x:cx, z:cz, r:TRACK_CFG.blockSize});
+    occupiedPoints.push({x:cx, y:cy, z:cz, r:TRACK_CFG.blockSize});
 
     // Avanzamento iniziale sicuro
     const startOffset = TRACK_CFG.blockSize;
@@ -564,7 +566,7 @@ function generateTrack(matPhysics, matTurbo) {
             const dS = getDelta(fwdDir, straightLen);
 
             // Check Straight
-            if (!checkTrackCollision(cx + dS.x, cz + dS.z, 5)) {
+            if (!checkTrackCollision(cx + dS.x, cy, cz + dS.z, 5)) {
                 // Opzioni Rettilineo
                 potentialMoves.push({ type: MODULES.STRAIGHT, nextDir: dir, dx: dS.x, dy: 0, dz: dS.z, len: straightLen, w: 10 });
 
@@ -603,13 +605,13 @@ function generateTrack(matPhysics, matTurbo) {
 
                 // Check Left
                 const endL = calcTurnEnd(dir, true);
-                if (!checkTrackCollision(cx + endL.x, cz + endL.z, r/1.5)) {
+                if (!checkTrackCollision(cx + endL.x, cy, cz + endL.z, r/1.5)) {
                     potentialMoves.push({ type: MODULES.TURN_LEFT, nextDir: leftDir, dx: endL.x, dy: 0, dz: endL.z, radius: r, w: 6 });
                 }
 
                 // Check Right
                 const endR = calcTurnEnd(dir, false);
-                if (!checkTrackCollision(cx + endR.x, cz + endR.z, r/1.5)) {
+                if (!checkTrackCollision(cx + endR.x, cy, cz + endR.z, r/1.5)) {
                     potentialMoves.push({ type: MODULES.TURN_RIGHT, nextDir: rightDir, dx: endR.x, dy: 0, dz: endR.z, radius: r, w: 6 });
                 }
             });
@@ -638,7 +640,7 @@ function generateTrack(matPhysics, matTurbo) {
                     occupiedPoints.push({
                         x: cx + (move.dx * k/steps),
                                         z: cz + (move.dz * k/steps),
-                                        r: 8 // Raggio sicurezza
+                                        r: 15 // Raggio sicurezza
                     });
                 }
 
@@ -682,85 +684,145 @@ function generateTrack(matPhysics, matTurbo) {
 let speedoCtx, speedoTexture;
 
 function createCar(wheelMat) {
-    // 1. Telaio Fisico
-    const chassisShape = new CANNON.Box(new CANNON.Vec3(CONFIG.chassisWidth/2, CONFIG.chassisHeight/2, CONFIG.chassisLength/2));
+    // 1. FISICA (Anti-Scraping)
+    // Hitbox sollevata per non toccare terra sulle rampe
     chassisBody = new CANNON.Body({ mass: CONFIG.mass });
-    chassisBody.addShape(chassisShape);
+    const physLen = 3.8; 
+    const physWidth = 1.8;
+    const physHeight = 0.4;
+    const chassisShape = new CANNON.Box(new CANNON.Vec3(physWidth/2, physHeight/2, physLen/2));
+    
+    // Offset +0.5: la pancia fisica è alta
+    chassisBody.addShape(chassisShape, new CANNON.Vec3(0, 0.5, 0));
+    
     chassisBody.position.set(0, 4, -10);
     chassisBody.quaternion.set(0, 0, 0, 1);
-    chassisBody.angularDamping = 0.5; // Riduce rotazioni incontrollate
+    chassisBody.angularDamping = 0.5;
     world.addBody(chassisBody);
 
-    // Mesh Grafica Telaio
-    const geo = new THREE.BoxGeometry(CONFIG.chassisWidth, CONFIG.chassisHeight, CONFIG.chassisLength);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xd92525 });
-    chassisMesh = new THREE.Mesh(geo, mat);
-    scene.add(chassisMesh);
+    // 2. GRAFICA (F1 Low Poly)
+    const carGroup = new THREE.Group();
+    
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd92525 }); // Rosso
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 }); // Carbonio
 
-    // --- TACHIMETRO ---
+    // Offset visuale negativo per "schiacciare" l'auto a terra visivamente
+    const visualY = -0.4; 
+
+    // A. Corpo Centrale
+    const bodyGeo = new THREE.BoxGeometry(0.8, 0.4, 2.0);
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.position.set(0, 0.5 + visualY, 0.2); 
+    bodyMesh.castShadow = true;
+    carGroup.add(bodyMesh);
+
+    // B. Naso
+    const noseGeo = new THREE.BoxGeometry(0.6, 0.25, 1.8);
+    const noseMesh = new THREE.Mesh(noseGeo, bodyMat);
+    noseMesh.position.set(0, 0.35 + visualY, -1.6); // Muso basso
+    noseMesh.castShadow = true;
+    carGroup.add(noseMesh);
+
+    // C. Pance Laterali
+    const sideGeo = new THREE.BoxGeometry(0.6, 0.35, 1.4);
+    const sideL = new THREE.Mesh(sideGeo, bodyMat);
+    sideL.position.set(-0.8, 0.4 + visualY, 0.4);
+    sideL.castShadow = true;
+    carGroup.add(sideL);
+
+    const sideR = new THREE.Mesh(sideGeo, bodyMat);
+    sideR.position.set(0.8, 0.4 + visualY, 0.4);
+    sideR.castShadow = true;
+    carGroup.add(sideR);
+
+    // D. Alettone Posteriore
+    const spoilerGeo = new THREE.BoxGeometry(2.2, 0.1, 0.6);
+    const spoilerMesh = new THREE.Mesh(spoilerGeo, darkMat);
+    spoilerMesh.position.set(0, 0.9 + visualY, 1.4);
+    spoilerMesh.castShadow = true;
+    carGroup.add(spoilerMesh);
+    
+    // Supporti alettone
+    const strutGeo = new THREE.BoxGeometry(0.1, 0.4, 0.4);
+    const strutL = new THREE.Mesh(strutGeo, darkMat);
+    strutL.position.set(-0.5, 0.7 + visualY, 1.4);
+    carGroup.add(strutL);
+    const strutR = new THREE.Mesh(strutGeo, darkMat);
+    strutR.position.set(0.5, 0.7 + visualY, 1.4);
+    carGroup.add(strutR);
+
+    // --- E. TACHIMETRO ---
     const canvas = document.createElement('canvas');
-    canvas.width = 128; canvas.height = 64; // Più piccolo
+    canvas.width = 128; canvas.height = 64;
     speedoCtx = canvas.getContext('2d');
     speedoTexture = new THREE.CanvasTexture(canvas);
+    
     const speedoPlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.8, 0.4),
-        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true, opacity: 1 })
+        new THREE.PlaneGeometry(0.6, 0.3),
+        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true, opacity: 1.0 })
     );
-    speedoPlane.position.set(0, 0, CONFIG.chassisLength / 2 + 0.01);
-    chassisMesh.add(speedoPlane);
+    // Posizione: sul retro del corpo centrale (Z ~ 1.21), altezza media
+    speedoPlane.position.set(0, 0.5 + visualY, 1.21); 
+    // Rotazione 0: guarda indietro verso la telecamera
+    speedoPlane.rotation.y = 0; 
+    carGroup.add(speedoPlane);
 
-    // 2. Veicolo
+    chassisMesh = carGroup; 
+    scene.add(chassisMesh);
+
+    // 3. VEICOLO (Sospensioni e Ruote)
     vehicle = new CANNON.RaycastVehicle({
         chassisBody: chassisBody,
         indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2
     });
 
     const options = {
-        radius: 0.45, // Ruote un po' più grandi
+        radius: 0.45,
         directionLocal: new CANNON.Vec3(0, -1, 0),
-        suspensionStiffness: CONFIG.suspensionStiffness,
-        suspensionRestLength: CONFIG.suspensionRestLength,
-        frictionSlip: CONFIG.frictionSlip,
+        suspensionStiffness: 45,
+        suspensionRestLength: 0.55,
+        frictionSlip: 2.5,
         dampingRelaxation: 2.3,
         dampingCompression: 4.4,
         maxSuspensionForce: 100000,
-        rollInfluence: 0.01, // Impedisce il ribaltamento laterale
+        rollInfluence: 0.01,
         axleLocal: new CANNON.Vec3(-1, 0, 0),
         chassisConnectionPointLocal: new CANNON.Vec3(1, 1, 0),
-        maxSuspensionTravel: 0.3,
+        maxSuspensionTravel: 0.4,
         customSlidingRotationalSpeed: -30,
         useCustomSlidingRotationalSpeed: true
     };
 
-    // Aggiunta Ruote - FIX POSIZIONE VERTICALE
-    // Alziamo il punto di connessione (Y=0 invece di negativo)
-    // Questo fa sì che il peso del telaio "penda" sotto le sospensioni = stabilità
-    const w = CONFIG.chassisWidth / 2;
-    const h = 0; // Connessione al centro altezza, non sotto
-    const l = CONFIG.chassisLength / 2 - 0.6;
+    const axisY = 0.3; 
+    const axisZF = -1.4; 
+    const axisZR = 1.3;  
+    const widthHalf = 1.1;
 
-    // FL, FR
-    options.chassisConnectionPointLocal.set(w - 0.2, h, -l);
-    vehicle.addWheel(options);
-    options.chassisConnectionPointLocal.set(-w + 0.2, h, -l);
-    vehicle.addWheel(options);
-    // RL, RR
-    options.chassisConnectionPointLocal.set(w - 0.2, h, l);
-    vehicle.addWheel(options);
-    options.chassisConnectionPointLocal.set(-w + 0.2, h, l);
-    vehicle.addWheel(options);
+    vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(widthHalf, axisY, axisZF)});
+    vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(-widthHalf, axisY, axisZF)});
+    vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(widthHalf, axisY, axisZR)});
+    vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(-widthHalf, axisY, axisZR)});
 
     vehicle.addToWorld(world);
 
     // Mesh Ruote
-    const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.5, 16);
+    const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.6, 24); 
     wheelGeo.rotateZ(Math.PI/2);
-    const wheelMatVis = new THREE.MeshStandardMaterial({ color: 0x333333 });
+    const wheelMatVis = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
+    const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.62, 16);
+    rimGeo.rotateZ(Math.PI/2);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xffff00 });
 
     vehicle.wheelInfos.forEach(w => {
-        const mesh = new THREE.Mesh(wheelGeo, wheelMatVis);
-        scene.add(mesh);
-        w.mesh = mesh;
+        const wheelGroup = new THREE.Group();
+        const tire = new THREE.Mesh(wheelGeo, wheelMatVis);
+        const rim = new THREE.Mesh(rimGeo, rimMat);
+        tire.castShadow = true;
+        wheelGroup.add(tire);
+        wheelGroup.add(rim);
+        
+        scene.add(wheelGroup);
+        w.mesh = wheelGroup;
     });
 }
 
