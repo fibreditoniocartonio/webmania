@@ -274,24 +274,20 @@ function generateTrack(matPhysics, matTurbo) {
     const isFree = (x, z) => !occupied.has(`${Math.round(x/BLOCK_SIZE)},${Math.round(z/BLOCK_SIZE)}`);
 
     // Cursore Griglia
-    let cx = 0, cy = 0, cz = 0; // Posizioni
+    let cx = 0, cy = 0, cz = 0;
     let dir = 0; // 0: -Z (Nord), 1: -X (Ovest), 2: +Z (Sud), 3: +X (Est)
 
     // START
     createBlock(MODULES.START, cx, cy, cz, dir, matPhysics, matTurbo);
     mark(cx, cz);
-    // Avanza cursore
-    cz -= BLOCK_SIZE; // Direzione iniziale 0 (Nord)
-    mark(cx, cz); // Riserva spazio davanti allo start
+
+    // Avanza cursore per uscire dallo start
+    cz -= BLOCK_SIZE;
+    mark(cx, cz);
 
     for (let i = 0; i < trackLength; i++) {
         let moves = [];
 
-        // Utility direzioni
-        // Dir 0: dx=0, dz=-B
-        // Dir 1: dx=-B, dz=0
-        // Dir 2: dx=0, dz=B
-        // Dir 3: dx=B, dz=0
         const getDelta = (d) => {
             if(d===0) return {x:0, z:-BLOCK_SIZE};
             if(d===1) return {x:-BLOCK_SIZE, z:0};
@@ -303,34 +299,28 @@ function generateTrack(matPhysics, matTurbo) {
         const left = getDelta((dir + 1) % 4);
         const right = getDelta((dir + 3) % 4);
 
-        // 1. STRAIGHT
+        // 1. STRAIGHT & RAMPS
         if (isFree(cx + fwd.x, cz + fwd.z)) {
+            // Straight base
             moves.push({ type: MODULES.STRAIGHT, nextDir: dir, dx: fwd.x, dy: 0, dz: fwd.z, w: 10 });
-            // TURBO (solo dritto)
+
+            // Turbo (solo piano)
             if(Math.random() > 0.9)
                 moves.push({ type: MODULES.TURBO, nextDir: dir, dx: fwd.x, dy: 0, dz: fwd.z, w: 2 });
 
-            // RAMPE (Solo se dritto è libero)
-            // Ramp Up
-            if (cy < RAMP_HEIGHT * 3) { // Max altezza
+            // Ramp Up (se non troppo alto)
+            if (cy < RAMP_HEIGHT * 3) {
                 moves.push({ type: MODULES.RAMP_UP, nextDir: dir, dx: fwd.x, dy: RAMP_HEIGHT, dz: fwd.z, w: 4 });
             }
-            // Ramp Down
+            // Ramp Down (se siamo in alto)
             if (cy >= RAMP_HEIGHT) {
                 moves.push({ type: MODULES.RAMP_DOWN, nextDir: dir, dx: fwd.x, dy: -RAMP_HEIGHT, dz: fwd.z, w: 4 });
             }
         }
 
-        // 2. TURNS
-        // Turn Left (Next pos is diagonal relative to current dir + 90deg rotation logic handled by block)
-        // Nella logica a griglia, il blocco Curva occupa la cella CORRENTE?
-        // No, il blocco curva si piazza "davanti" e cambia la direzione d'uscita.
-        // Ma il mio createBlock posiziona il pivot all'inizio.
-        // Quindi se metto una curva a SX, l'uscita è a (fwd + left).
-
+        // 2. TURNS (Solo se piano)
         const turnLPos = { x: cx + fwd.x + left.x, z: cz + fwd.z + left.z };
         if (isFree(cx + fwd.x, cz + fwd.z) && isFree(turnLPos.x, turnLPos.z)) {
-            // Nota: La curva occupa "geometricamente" lo spazio fwd+left
             moves.push({ type: MODULES.TURN_LEFT, nextDir: (dir + 1) % 4, dx: fwd.x + left.x, dy: 0, dz: fwd.z + left.z, w: 5 });
         }
 
@@ -339,31 +329,35 @@ function generateTrack(matPhysics, matTurbo) {
             moves.push({ type: MODULES.TURN_RIGHT, nextDir: (dir + 3) % 4, dx: fwd.x + right.x, dy: 0, dz: fwd.z + right.z, w: 5 });
         }
 
-        // Selezione
-        if (moves.length === 0) break; // Vicolo cieco
+        // Fallback: se bloccato, termina la pista
+        if (moves.length === 0) {
+            createBlock(MODULES.FINISH, cx, cy, cz, dir, matPhysics, matTurbo);
+            break;
+        }
 
-        // Filtra rampe consecutive brutte o limiti
+        // Selezione casuale pesata
         const totalW = moves.reduce((a,b)=>a+b.w,0);
         let r = Math.random() * totalW;
         let move = moves.find(m => (r -= m.w) < 0) || moves[0];
 
-        if (i % 8 === 0 && i>0) move.type = MODULES.CHECKPOINT;
-        if (i === trackLength - 1) move.type = MODULES.FINISH;
-
-        // Genera
-        createBlock(move.type, cx, cy, cz, dir, matPhysics, matTurbo);
-
-        // Aggiorna Cursore
-        // Nota: createBlock piazza il blocco a (cx,cy,cz) orientato verso 'dir'.
-        // L'uscita del blocco è a (cx+dx, cy+dy, cz+dz).
-
-        // Marchiamo occupato il blocco "dritto" dove siede la curva/rampa/dritto
-        mark(cx + fwd.x, cz + fwd.z);
-        // Se è curva, marchiamo anche l'angolo interno per evitare sovrapposizioni
-        if(move.type === MODULES.TURN_LEFT || move.type === MODULES.TURN_RIGHT) {
-            mark(cx + move.dx, cz + move.dz);
+        // --- FIX CHECKPOINT ---
+        // Sovrascrivi SOLO se è un rettilineo. Mai su curve o rampe.
+        if (move.type === MODULES.STRAIGHT && i % 8 === 0 && i > 0) {
+            move.type = MODULES.CHECKPOINT;
         }
 
+        if (i === trackLength - 1) move.type = MODULES.FINISH;
+
+        // Genera blocco
+        createBlock(move.type, cx, cy, cz, dir, matPhysics, matTurbo);
+
+        // Occupa le celle
+        mark(cx + fwd.x, cz + fwd.z); // Cella "davanti" (dove poggia la rampa/curva)
+        if(move.type === MODULES.TURN_LEFT || move.type === MODULES.TURN_RIGHT) {
+            mark(cx + move.dx, cz + move.dz); // Cella di destinazione curva
+        }
+
+        // Avanza cursore
         cx += move.dx;
         cy += move.dy;
         cz += move.dz;
