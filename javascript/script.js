@@ -168,7 +168,7 @@ const BLOCK_BUILDERS = {
     // --- RAMPA CURVA (S-CURVE) ---
     ramp: (container, body, params) => {
         const len = params.length || TRACK_CFG.blockSize;
-        const totalH = params.height || 10;
+        const totalH = params.height || TRACK_CFG.blockSize;
         const width = params.width || TRACK_CFG.blockSize;
 
         // Dividiamo la rampa in segmenti per fare la curva
@@ -209,232 +209,172 @@ const BLOCK_BUILDERS = {
         }
     },
 
-    // --- CURVA CON CUNEI (NO GAP) ---
+    // --- CURVA SETTORIALE ---
     turn: (container, body, params) => {
         const isLeft = params.isLeft;
         const r = params.radius;
         const width = params.width || TRACK_CFG.blockSize;
-        const segments = 12; // Aumentiamo i segmenti per fluidità
+
+        const segments = 12;
         const angleTotal = Math.PI / 2;
         const angleStep = angleTotal / segments;
 
-        // Parametri per il cuneo
-        // Larghezza esterna e interna del segmento trapezoidale
-        // rOuter = r + width/2, rInner = r - width/2
-        // Corda esterna ~ 2 * rOuter * sin(angleStep/2)
-        // Corda interna ~ 2 * rInner * sin(angleStep/2)
-
-        const rOuter = r + width/2;
-        const rInner = r - width/2;
-        const chordOuter = 2 * rOuter * Math.tan(angleStep/2) + 0.1; // +0.1 sovrapposizione sicurezza
-        const chordInner = 2 * rInner * Math.tan(angleStep/2) + 0.1;
+        // Offset laterale per i muri (metà strada - metà muro)
+        // Larghezza muro = 1. Offset = (Width/2 - 0.5)
+        const latOffset = width/2 - 0.5;
 
         for (let i = 0; i < segments; i++) {
             const theta = (i * angleStep) + (angleStep / 2);
-            const sign = isLeft ? 1 : -1;
-            const angle = theta * sign;
 
-            // Posizione centro del segmento
+            // Calcolo posizione centro strada
+            const sign = isLeft ? 1 : -1;
+            const blockAngle = theta * sign;
             const dx = (r * (1 - Math.cos(theta))) * (isLeft ? -1 : 1);
             const dz = -r * Math.sin(theta);
 
             const segPos = new CANNON.Vec3(dx, 0, dz);
-            const segRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+            const segRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), blockAngle);
 
-            // Aggiunta CUNEO FISICO (Trapezio)
-            // Se è Left, la parte stretta (Inner) è a sinistra locale (+X locale) ?
-            // In Three/Cannon coordinate:
-            // Sinistra (-X), Destra (+X).
-            // Curva a sinistra: Interno è a Sinistra (-X). Quindi wLeft < wRight.
-            // Attenzione all'orientamento del cuneo.
+            // 1. PAVIMENTO (Centrato su segPos)
+            const roadMesh = createSectorMesh(r, width, 0.5, angleStep, isLeft, TRACK_CFG.colors.road);
+            roadMesh.position.copy(segPos);
+            roadMesh.quaternion.copy(segRot);
+            container.add(roadMesh);
 
-            let wBack, wFront;
-            // Usiamo simmetria: il trapezio è simmetrico rispetto al suo asse Z locale.
-            // wOuter è la base maggiore, wInner base minore.
-            // I cunei risolvono il gap.
+            const roadShape = createSectorPhysics(r, width, 0.5, angleStep, isLeft);
+            body.addShape(roadShape, segPos, segRot);
 
-            const shape = createTrapezoidPhysics(chordOuter, chordInner, 0.5, width, 0); // Scambiamo assi: Lunghezza è Width stradale, larghezze sono le corde
+            // 2. MURI (Offset laterale)
+            // Raggio dei muri per la geometria (Curvatura)
+            const rInnerWall = r - latOffset;
+            const rOuterWall = r + latOffset;
+            const wH = TRACK_CFG.wallHeight;
 
-            // NOTA: createTrapezoidPhysics crea un cuneo lungo Z con larghezze w1 e w2.
-            // Noi vogliamo un cuneo orientato trasversalmente? No, seguiamo la strada.
-            // Strada va lungo -Z.
-            // Larghezza strada è X.
-            // Nella curva, la "Larghezza" visiva del trapezio varia lungo X? No.
-            // Il trapezio ha larghezza costante (Width strada) ma lunghezza variabile (Corde).
-            // Quindi: Lungo X (larghezza strada) è costante. Lungo Z (direzione marcia) varia.
-            // Z-Back (verso origine curva), Z-Front (verso uscita).
-            // Z-Left side (interno curva Sx) deve essere corto. Z-Right side lungo.
+            // Calcolo offset vettoriale locale ruotato
+            // Inner Wall: Se Left, è a sinistra (-X). Se Right, è a destra (+X).
+            // Outer Wall: Opposto.
+            // Attenzione: In coordinate curve locali, Inner è sempre verso il centro curvatura.
+            // Se Left (centro a -X), Inner è a -X.
+            // Se Right (centro a +X), Inner è a +X.
 
-            // Soluzione semplice: Costruiamo il cuneo ruotato.
-            // w1 (Back width) e w2 (Front width) nella funzione trapezio sono larghezze X.
-            // Qui invece variano le lunghezze Z.
+            const xInner = isLeft ? -latOffset : latOffset;
+            const xOuter = isLeft ? latOffset : -latOffset;
 
-            // Usiamo ConvexPolyhedron custom diretto sui 4 punti del pavimento
-            const localR = new THREE.Matrix4().makeRotationY(angle);
-            // Non serve complicarsi, usiamo il trapezio helper ruotandolo di 90 gradi se necessario
-            // Oppure, semplicemente:
-            // Cuneo orientato normale: base maggiore wOuter, base minore wInner.
-            // Questo riempie il gap.
+            // Posizione verticale muri (centrati su wH/2 per poggiare a terra)
+            // ThreeJS Position
+            const innerPos = new THREE.Vector3(xInner, wH/2, 0).applyQuaternion(segRot).add(segPos);
+            const outerPos = new THREE.Vector3(xOuter, wH/2, 0).applyQuaternion(segRot).add(segPos);
 
-            // Parametri corretti per createTrapezoid (qui "len" è la larghezza strada, w1/w2 sono le lunghezze d'arco)
-            // w1 (back) e w2 (front) uguali? No.
-            // Un segmento di anello è un trapezio isoscele se "srotolato"?
-            // No, è un prisma dove la faccia interna è più corta di quella esterna.
+            // Muro Interno
+            const innerMesh = createSectorMesh(rInnerWall, 1, wH, angleStep, isLeft, TRACK_CFG.colors.wall);
+            innerMesh.position.copy(innerPos);
+            innerMesh.quaternion.copy(segRot);
+            container.add(innerMesh);
 
-            // Definiamo i vertici esatti del segmento curvo nello spazio locale del blocco curva
-            // e li aggiungiamo al body principale (che è statico a 0,0,0 nel container)
-            // MA il container è già posizionato e ruotato.
-            // Lavoriamo in spazio locale del container (dx, dz).
+            const innerShape = createSectorPhysics(rInnerWall, 1, wH, angleStep, isLeft);
+            body.addShape(innerShape, innerPos, segRot);
 
-            // Semplificazione:
-            // Usiamo il trapezio con:
-            // width = larghezza strada
-            // len = media delle corde
-            // E applichiamo uno skew? No.
+            // Muro Esterno
+            const outerMesh = createSectorMesh(rOuterWall, 1, wH, angleStep, isLeft, TRACK_CFG.colors.wall);
+            outerMesh.position.copy(outerPos);
+            outerMesh.quaternion.copy(segRot);
+            container.add(outerMesh);
 
-            // Torniamo al pratico: createTrapezoidPhysics accetta w1(back) e w2(front).
-            // Noi vogliamo w(left) e w(right).
-            // Ruotiamo il cuneo di 90 gradi.
-
-            const mesh = createTrapezoidMesh(chordOuter, chordInner, 0.5, width, TRACK_CFG.colors.road);
-            const shapePoly = createTrapezoidPhysics(chordOuter, chordInner, 0.5, width);
-
-            // Orientamento: La base maggiore (chordOuter) deve stare all'esterno.
-            // Se Curva SX: Esterno è Destra (+X). Interno (-X).
-            // createTrapezoid ha w1 (-Z?), w2 (+Z?).
-            // Ruotiamo di -90 gradi su Y.
-            // Cosi w1/w2 diventano Left/Right.
-            // w1 è Back (-Z ruotato -> +X), w2 è Front (+Z ruotato -> -X).
-
-            // Facciamo prima a passare i vertici manuali per ogni segmento:
-            const pInnerBack = new CANNON.Vec3(isLeft ? -width/2 : width/2, 0, -chordInner/2);
-            const pInnerFront = new CANNON.Vec3(isLeft ? -width/2 : width/2, 0, chordInner/2);
-            const pOuterBack = new CANNON.Vec3(isLeft ? width/2 : -width/2, 0, -chordOuter/2);
-            const pOuterFront = new CANNON.Vec3(isLeft ? width/2 : -width/2, 0, chordOuter/2);
-
-            // ...troppo complicato in real-time.
-            // Torniamo alla soluzione "Overlap intelligente" con Trapezoid precalcolato.
-            // Il segmento è un trapezio. Base maggiore = chordOuter, Base minore = chordInner. Altezza = width.
-            // Lo piazziamo al centro (dx, dz) e ruotiamo di (angle).
-            // MA il trapezio deve avere la base maggiore verso l'esterno.
-
-            const qSegFix = segRot.clone();
-            // Ruotiamo il cuneo affinché le basi siano laterali (lungo X)
-            qSegFix.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2));
-
-            // Se sinistra: Esterno a Destra. Base maggiore (+Z locale dopo rotazione 90) deve andare a +X globale del segmento?
-            // createTrapezoid: w1 (-Z), w2 (+Z).
-            // Se w2 > w1. w2 è "davanti".
-            // Ruotato 90 deg: w2 va a sinistra (-X) o destra (+X)?
-
-            let c1 = chordInner, c2 = chordOuter;
-            if(isLeft) {
-                // Sinistra: Interno (-X), Esterno (+X).
-                // Vogliamo che a -X ci sia la corda corta, a +X la lunga.
-                c1 = chordInner; // "Dietro" nel trapezio standard
-                c2 = chordOuter; // "Davanti"
-                // Rotazione necessaria per mettere c1 a sinistra e c2 a destra?
-                // Standard: w1(-Z), w2(+Z).
-                // Ruotando -90 su Y: -Z diventa +X (destra), +Z diventa -X (sinistra).
-                // Quindi a Destra finisce w1 (Back).
-                // Vogliamo c2 (Lungo) a destra. Quindi w1 = c2.
-                c1 = chordOuter;
-                c2 = chordInner;
-            } else {
-                // Destra: Interno (+X), Esterno (-X).
-                // Vogliamo c1(Lungo) a Sinistra (-X), c2(Corto) a Destra (+X).
-                // Ruotando -90: Destra è w1. Sinistra è w2.
-                // Vogliamo w1 = corto, w2 = lungo.
-                c1 = chordInner;
-                c2 = chordOuter;
-            }
-
-            const wTrapeze = width; // Lunghezza del trapezio (da base a base)
-
-            // Mesh
-            const tMesh = createTrapezoidMesh(c1, c2, 0.5, wTrapeze, TRACK_CFG.colors.road);
-            tMesh.position.copy(segPos);
-            tMesh.quaternion.copy(qSegFix);
-            container.add(tMesh);
-
-            // Physics
-            const tShape = createTrapezoidPhysics(c1, c2, 0.5, wTrapeze);
-            body.addShape(tShape, segPos, qSegFix);
-
-            // Walls (Box standard vanno bene, ma devono seguire l'inclinazione)
-            // Inner Wall
-            const innerOff = isLeft ? -width/2 + 0.5 : width/2 - 0.5;
-            const wInPos = new THREE.Vector3(innerOff, TRACK_CFG.wallHeight/2, 0).applyQuaternion(segRot).add(segPos);
-            // Usiamo chordInner per la lunghezza muro interno
-            addBox(container, body, wInPos, new CANNON.Vec3(1, TRACK_CFG.wallHeight, chordInner + 0.2), true, segRot);
-
-            // Outer Wall
-            const outerOff = isLeft ? width/2 - 0.5 : -width/2 + 0.5;
-            const wOutPos = new THREE.Vector3(outerOff, TRACK_CFG.wallHeight/2, 0).applyQuaternion(segRot).add(segPos);
-            addBox(container, body, wOutPos, new CANNON.Vec3(1, TRACK_CFG.wallHeight, chordOuter + 0.2), true, segRot);
+            const outerShape = createSectorPhysics(rOuterWall, 1, wH, angleStep, isLeft);
+            body.addShape(outerShape, outerPos, segRot);
         }
     }
 };
 
 // --- HELPER FISICA AVANZATA ---
 
-// Crea un corpo trapezoidale (Cuneo) per le curve perfette
-function createTrapezoidPhysics(w1, w2, h, len, offset) {
-    // w1: larghezza 'dietro', w2: larghezza 'davanti'
-    // Definiamo gli 8 vertici del cuneo centrati localmente
-    const dy = h / 2;
-    const dz = len / 2;
+// CURVE PERFETTE -> Calcola i vertici di un settore di anello (Road o Wall)
+function getSectorVertices(r, width, height, angle, isLeft) {
+    // Calcola i vertici esatti per un settore curvo
+    const rInner = r - width / 2;
+    const rOuter = r + width / 2;
+    const halfAngle = angle / 2;
 
-    // Vertici (ordine specifico per CannonJS)
-    const vertices = [
-        new CANNON.Vec3(-w1/2, -dy, -dz), // 0: BL Back
-        new CANNON.Vec3( w1/2, -dy, -dz), // 1: BR Back
-        new CANNON.Vec3( w1/2,  dy, -dz), // 2: TR Back
-        new CANNON.Vec3(-w1/2,  dy, -dz), // 3: TL Back
-        new CANNON.Vec3(-w2/2, -dy,  dz), // 4: BL Front
-        new CANNON.Vec3( w2/2, -dy,  dz), // 5: BR Front
-        new CANNON.Vec3( w2/2,  dy,  dz), // 6: TR Front
-        new CANNON.Vec3(-w2/2,  dy,  dz)  // 7: TL Front
+    // Y range: Centrato su 0, come i Box standard (che vanno da -H/2 a +H/2)
+    const yBot = -height / 2;
+    const yTop = height / 2;
+
+    // Helper Polare: converte raggio/angolo in x/z locali
+    // Il pivot del blocco è al centro della "fetta" (Angle=0) sulla linea mediana (Radius=r)
+    // Quindi sottraiamo il raggio centrale 'r' per avere coordinate relative (0,0) al centro strada
+    const getPoint = (radius, theta) => {
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+
+        let px, pz;
+        if (isLeft) {
+            // Centro curvatura a (-r, 0).
+            // P = Centro + vettore rotante
+            px = -r + radius * cos;
+            pz = -radius * sin;
+        } else {
+            // Centro curvatura a (+r, 0).
+            px = r - radius * cos;
+            pz = radius * sin;
+        }
+        return { x: px, z: pz };
+    };
+
+    // 4 Vertici base
+    const vBackInner  = getPoint(rInner, -halfAngle);
+    const vFrontInner = getPoint(rInner,  halfAngle);
+    const vBackOuter  = getPoint(rOuter, -halfAngle);
+    const vFrontOuter = getPoint(rOuter,  halfAngle);
+
+    // Ordine vertici per Cannon (ConvexPolyhedron)
+    return [
+        new CANNON.Vec3(vBackInner.x, yBot, vBackInner.z),  // 0
+        new CANNON.Vec3(vBackOuter.x, yBot, vBackOuter.z),  // 1
+        new CANNON.Vec3(vFrontOuter.x, yBot, vFrontOuter.z),// 2
+        new CANNON.Vec3(vFrontInner.x, yBot, vFrontInner.z),// 3
+        new CANNON.Vec3(vBackInner.x, yTop, vBackInner.z),  // 4
+        new CANNON.Vec3(vBackOuter.x, yTop, vBackOuter.z),  // 5
+        new CANNON.Vec3(vFrontOuter.x, yTop, vFrontOuter.z),// 6
+        new CANNON.Vec3(vFrontInner.x, yTop, vFrontInner.z) // 7
     ];
-
-    // Facce (indici dei vertici, senso antiorario guardando da fuori)
-    const faces = [
-        [3, 2, 1, 0], // Back
-        [4, 5, 6, 7], // Front
-        [5, 4, 0, 1], // Bottom
-        [2, 3, 7, 6], // Top
-        [0, 4, 7, 3], // Left
-        [1, 2, 6, 5]  // Right
-    ];
-
-    return new CANNON.ConvexPolyhedron({ vertices, faces });
 }
 
-// Crea la mesh ThreeJS corrispondente al cuneo
-function createTrapezoidMesh(w1, w2, h, len, color) {
-    const geo = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-        // Back Face
-        -w1/2, h/2, -len/2,   w1/2, h/2, -len/2,   -w1/2, -h/2, -len/2,
-        w1/2, h/2, -len/2,    w1/2, -h/2, -len/2,  -w1/2, -h/2, -len/2,
-        // Front Face
-        -w2/2, -h/2, len/2,   w2/2, -h/2, len/2,   -w2/2, h/2, len/2,
-        w2/2, h/2, len/2,     -w2/2, h/2, len/2,   w2/2, -h/2, len/2,
-        // Top Face
-        -w1/2, h/2, -len/2,   -w2/2, h/2, len/2,   w1/2, h/2, -len/2,
-        w1/2, h/2, -len/2,    -w2/2, h/2, len/2,   w2/2, h/2, len/2,
-        // Bottom Face
-        -w1/2, -h/2, -len/2,  w1/2, -h/2, -len/2,  -w2/2, -h/2, len/2,
-        w1/2, -h/2, -len/2,   w2/2, -h/2, len/2,   -w2/2, -h/2, len/2,
-        // Left Face
-        -w1/2, h/2, -len/2,   -w1/2, -h/2, -len/2, -w2/2, h/2, len/2,
-        -w2/2, h/2, len/2,    -w1/2, -h/2, -len/2, -w2/2, -h/2, len/2,
-        // Right Face
-        w1/2, h/2, -len/2,    w2/2, h/2, len/2,    w1/2, -h/2, -len/2,
-        w2/2, h/2, len/2,     w2/2, -h/2, len/2,   w1/2, -h/2, -len/2
-    ]);
+function createSectorPhysics(r, width, height, angle, isLeft) {
+    const verts = getSectorVertices(r, width, height, angle, isLeft);
+    const faces = [
+        [3, 2, 1, 0], // Bottom
+        [4, 5, 6, 7], // Top
+        [0, 1, 5, 4], // Back
+        [2, 3, 7, 6], // Front
+        [0, 4, 7, 3], // Inner Side
+        [1, 2, 6, 5]  // Outer Side
+    ];
+    return new CANNON.ConvexPolyhedron({ vertices: verts, faces });
+}
 
-    geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+function createSectorMesh(r, width, height, angle, isLeft, color) {
+    const verts = getSectorVertices(r, width, height, angle, isLeft);
+    const geo = new THREE.BufferGeometry();
+    const v = verts;
+
+    const positions = [];
+    const addTri = (a, b, c) => {
+        positions.push(v[a].x, v[a].y, v[a].z);
+        positions.push(v[b].x, v[b].y, v[b].z);
+        positions.push(v[c].x, v[c].y, v[c].z);
+    };
+    const addQuad = (a, b, c, d) => {
+        addTri(a, b, c); addTri(a, c, d);
+    };
+
+    addQuad(4, 5, 6, 7); // Top
+    addQuad(3, 2, 1, 0); // Bottom
+    addQuad(0, 1, 5, 4); // Back
+    addQuad(2, 3, 7, 6); // Front
+    addQuad(3, 0, 4, 7); // Inner
+    addQuad(1, 2, 6, 5); // Outer
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.computeVertexNormals();
 
     const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7 });
@@ -576,12 +516,12 @@ function generateTrack(matPhysics, matTurbo) {
                 // Opzioni Rampa (solo se abbastanza spazio verticale)
                 if (cy < 40) {
                     // Salita
-                    const h = 10 + Math.random() * 10;
+                    const h = 5 + Math.random() * 10;
                     potentialMoves.push({ type: MODULES.RAMP_UP, nextDir: dir, dx: dS.x, dy: h, dz: dS.z, len: straightLen, height: h, w: 5 });
                 }
                 if (cy > 10) {
                     // Discesa
-                    const h = 10 + Math.random() * 10;
+                    const h = 5 + Math.random() * 10;
                     // Per discesa: creiamo un blocco che scende.
                     // Nota: createBlock gestisce la visuale, qui passiamo il delta Y negativo
                     potentialMoves.push({ type: MODULES.RAMP_DOWN, nextDir: dir, dx: dS.x, dy: -h, dz: dS.z, len: straightLen, height: h, w: 5 });
