@@ -154,8 +154,9 @@ function updateTouchVisibility() {
 
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
-let vehicle, chassisMesh, chassisBody;
-let trackMeshes = [], trackBodies = [];
+let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
+let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
+const MAX_SKIDMARKS = 250;
 
 // Stato Corrente
 let currentState = GAME_STATE.START;
@@ -669,11 +670,15 @@ function generateTrack(matPhysics, matTurbo, seed) {
 
     console.log("Generating Seed:", currentSeed);
 
-    // RESET BEST TIME (Logica esistente...)
-    bestTime = null;
-    uiBestTime.innerText = "Best: --:--.---";
-    // Nota: rimuoviamo il removeItem per non cancellare la memoria del record specifico,
-    // ma qui stiamo caricando una nuova pista, quindi va bene resettare la UI.
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    const existingRecord = history.find(r => r.seed === currentSeed);
+    if (existingRecord) {
+        bestTime = existingRecord.time;
+        uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+    } else {
+        bestTime = null;
+        uiBestTime.innerText = "Best: --:--.---";
+    }
 
     trackMeshes.forEach(m => scene.remove(m));
     trackBodies.forEach(b => world.removeBody(b));
@@ -850,6 +855,20 @@ function createCar(wheelMat) {
     strutR.position.set(0.5, 0.7 + visualY, 1.4);
     carGroup.add(strutR);
 
+    //luci freno
+    const brakeLightGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05);
+    const brakeLightMat = new THREE.MeshStandardMaterial({
+        color: 0x880000,
+        emissive: 0x000000,
+        emissiveIntensity: 2
+    });
+    brakeLightL = new THREE.Mesh(brakeLightGeo, brakeLightMat);
+    brakeLightR = new THREE.Mesh(brakeLightGeo, brakeLightMat);
+    brakeLightL.position.copy(strutL.position).add(new THREE.Vector3(0, -0.1, 0.21));
+    brakeLightR.position.copy(strutR.position).add(new THREE.Vector3(0, -0.1, 0.21));
+    carGroup.add(brakeLightL);
+    carGroup.add(brakeLightR);
+
     // --- E. TACHIMETRO ---
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 64;
@@ -978,6 +997,43 @@ function animate() {
             }
             steer = inSteer * CONFIG.maxSteerVal;
         }
+
+        // Luci Freno
+        if (brakeLightL && (inBrake > 0.1 || inHandbrake > 0.1)) {
+            brakeLightL.material.emissive.setHex(0xff0000);
+        } else if (brakeLightL) {
+            brakeLightL.material.emissive.setHex(0x000000);
+        }
+
+        // Sgommate (Skidmarks)
+        vehicle.wheelInfos.forEach(w => {
+            if (w.sliding && currentState === GAME_STATE.RACING) {
+                // Throttling: crea una sgommata solo ogni 50ms per non intasare
+                if (gameTime % 50 < 25) {
+                    const skidGeo = new THREE.PlaneGeometry(0.5, 1.5);
+                    const skidMat = new THREE.MeshBasicMaterial({
+                        color: 0x000000,
+                        transparent: true,
+                        opacity: 0.4
+                    });
+                    const skidMesh = new THREE.Mesh(skidGeo, skidMat);
+
+                    // Posiziona la sgommata nel punto di contatto e ruotala con l'auto
+                    skidMesh.position.copy(w.raycastResult.hitPointWorld).add(new THREE.Vector3(0, 0.02, 0)); // Leggero offset per evitare Z-fighting
+                    skidMesh.quaternion.copy(chassisBody.quaternion);
+                    skidMesh.rotateX(-Math.PI / 2); // Orienta il piano orizzontalmente
+
+                    scene.add(skidMesh);
+                    skidmarkMeshes.push(skidMesh);
+
+                    // Rimuovi le sgommate più vecchie se superiamo il limite
+                    if (skidmarkMeshes.length > MAX_SKIDMARKS) {
+                        const oldSkid = skidmarkMeshes.shift();
+                        scene.remove(oldSkid);
+                    }
+                }
+            }
+        });
 
         vehicle.applyEngineForce(engine, 0);
         vehicle.applyEngineForce(engine, 1);
@@ -1140,10 +1196,12 @@ function triggerRespawnLogic(type) {
 
 function resetTrack(generateNew = false) {
     if (generateNew) {
-        // Logica esistente di rigenerazione (semplificata chiamando init o reload, ma qui facciamo pulito)
         window.location.reload();
         return;
     }
+
+    skidmarkMeshes.forEach(m => scene.remove(m));
+    skidmarkMeshes = [];
 
     // Reset Logico (Delete Key)
     currentCheckpointData.index = -1;
