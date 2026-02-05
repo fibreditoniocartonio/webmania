@@ -16,9 +16,30 @@
         <div id="best-time">Best: --:--.---</div>
         <div id="countdown"></div>
         <div id="message"></div>
-        <!-- Box per errori -->
         <div id="error-log" style="color: red; background: rgba(0,0,0,0.8); display: none; padding: 10px; position: absolute; top:0; left:0; z-index:999;"></div>
     </div>
+     <!-- Overlay Controlli Touch (In-Game) -->
+<div id="touch-controls" style="display: none;">
+            <button class="touch-btn" data-action="left" id="btn-t-left">◄</button>
+            <button class="touch-btn" data-action="right" id="btn-t-right">►</button>
+            <button class="touch-btn" data-action="accel" id="btn-t-accel">▲</button>
+            <button class="touch-btn" data-action="brake" id="btn-t-brake">▼</button>
+            <button class="touch-btn small" data-action="pause" id="btn-t-pause">||</button>
+            <button class="touch-btn" data-action="handbrake" id="btn-t-handbrake">✋</button>
+        </div>
+        <!-- Editor Touch (Visibile solo nelle opzioni) -->
+        <div id="touch-editor-overlay" style="display: none; z-index: 3000; flex-direction: column;">
+            <div class="editor-msg" style="position: relative; top: auto; margin-bottom: 20px;">
+                TRASCINA PER SPOSTARE - CLICCA PER SELEZIONARE
+            </div>
+            <!-- Controlli Editor -->
+            <div style="background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #fff; border-radius: 10px; z-index: 3010; pointer-events: auto;">
+                <label style="color: white; font-size: 18px; display: block; margin-bottom: 5px;">Grandezza Tasto Selezionato</label>
+                <input type="range" id="touch-size-slider" min="0.5" max="2.5" step="0.1" value="1.0" style="width: 200px;">
+                <div id="selected-btn-name" style="color: #ffff00; text-align: center; margin-top: 5px; font-size: 14px;">Nessuno selezionato</div>
+            </div>
+            <button class="menu-btn secondary" style="margin-top: 20px; width:200px; pointer-events:auto; z-index: 3010;" onclick="window.uiCloseTouchEditor()">SALVA & ESCI</button>
+        </div>
 
     <!-- Menu Principale (inizialmente visibile) -->
     <div id="main-menu" class="menu-overlay">
@@ -43,18 +64,87 @@
 
         <!-- Schermata Record -->
         <div id="menu-records" class="menu-screen" style="display:none;">
-            <h2>ULTIMI 100 SEED</h2>
+            <h2>Record dei seed salvati</h2>
             <div id="records-list">
                 <!-- Lista generata via JS -->
             </div>
             <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
         </div>
 
-        <!-- Schermata Opzioni -->
+        <!-- Schermata Opzioni Principale -->
         <div id="menu-options" class="menu-screen" style="display:none;">
             <h2>OPZIONI</h2>
-            <p>Work in Progress...</p>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">GENERALI</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')">COMANDI</button>
+            <button class="menu-btn" onclick="alert('Presto disponibile!')">PERSONALIZZA AUTO</button>
+            <button class="menu-btn" onclick="alert('Webmania v'+GAME_VERSION+'\nBy You')">CREDITI</button>
             <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+        </div>
+
+        <!-- Sottomenu Generali -->
+        <div id="opt-general" class="menu-screen" style="display:none;">
+            <h2>GENERALI</h2>
+
+            <div class="setting-row">
+                <label>Distanza Render (Fog)</label>
+                <input type="range" id="opt-render-dist" min="50" max="1000" step="25" onchange="window.updateSetting('renderDistance', this.value)">
+                <span id="val-render-dist"></span>
+            </div>
+
+            <div class="setting-row">
+                <label>Max Record Salvati</label>
+                <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">
+                <span id="val-max-records"></span>
+            </div>
+
+            <button class="menu-btn secondary" onclick="window.uiOpenOptions()">INDIETRO</button>
+        </div>
+
+        <!-- Sottomenu Comandi -->
+        <div id="opt-controls" class="menu-screen" style="display:none;">
+            <h2>COMANDI</h2>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-keys')">TASTIERA</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-gamepad')">CONTROLLER</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-touch')">TOUCH</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenOptions()">INDIETRO</button>
+        </div>
+
+        <!-- Controlli Tastiera -->
+        <div id="opt-keys" class="menu-screen scrollable-menu" style="display:none;">
+            <h2>TASTIERA</h2>
+            <div id="key-binds-list"></div> <!-- Generato via JS -->
+            <button class="menu-btn" onclick="window.resetKeysDefault()">RIPRISTINA DEFAULT</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+        </div>
+
+        <!-- Controlli Gamepad -->
+        <div id="opt-gamepad" class="menu-screen" style="display:none;">
+            <h2>CONTROLLER</h2>
+            <div class="setting-row">
+                <label>Abilita Controller</label>
+                <input type="checkbox" id="chk-gamepad" onchange="window.updateSetting('gamepadEnabled', this.checked)">
+            </div>
+            <div id="gamepad-status" style="color: yellow; font-size: 14px; margin-bottom: 10px;">Nessun controller rilevato</div>
+            <div id="gamepad-binds-list"></div>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+        </div>
+
+        <!-- Controlli Touch -->
+        <div id="opt-touch" class="menu-screen" style="display:none;">
+            <h2>TOUCH</h2>
+            <div class="setting-row">
+                <label>Abilita Touch</label>
+                <input type="checkbox" id="chk-touch" onchange="window.updateSetting('touchEnabled', this.checked)">
+            </div>
+            <button class="menu-btn" onclick="window.uiOpenTouchEditor()">MODIFICA TASTI TOUCH</button>
+            <button class="menu-btn" onclick="window.resetTouchDefault()">RIPRISTINA LAYOUT DEFAULT</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+        </div>
+
+        <!-- Overlay Binding (Modale cattura tasto) -->
+        <div id="binding-overlay" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.9); z-index: 3000;">
+            <h2 id="binding-msg">PREMI UN TASTO...</h2>
+            <button class="menu-btn secondary" onclick="window.cancelBinding()">ANNULLA</button>
         </div>
     </div>
 

@@ -227,3 +227,113 @@ margin-bottom: 20px;
     padding: 40px;
     box-shadow: 0 0 20px rgba(255,255,255,0.2);
 }
+
+/* --- SETTINGS UI --- */
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    background: rgba(255,255,255,0.1);
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.setting-row label {
+    color: #fff;
+    font-size: 18px;
+}
+
+.scrollable-menu {
+    max-height: 400px;
+    overflow-y: auto;
+    width: 100%;
+    padding-right: 5px;
+}
+
+/* Key Binding UI */
+.bind-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #333;
+    padding: 5px 0;
+}
+.bind-label { font-size: 16px; color: #ccc; }
+.bind-btn {
+    background: #333;
+    border: 1px solid #555;
+    color: #fff;
+    padding: 5px 10px;
+    min-width: 80px;
+    font-family: 'Courier New';
+    font-size: 14px;
+}
+.bind-btn:hover { background: #555; }
+.bind-btn.empty { color: #555; font-style: italic; }
+
+/* --- TOUCH CONTROLS --- */
+#touch-controls {
+position: absolute;
+top: 0; left: 0; width: 100%; height: 100%;
+pointer-events: none;
+z-index: 1000;
+}
+
+.touch-zone {
+    position: absolute;
+    bottom: 20px;
+    display: flex;
+    gap: 20px;
+    pointer-events: auto; /* I pulsanti ricevono input */
+}
+
+#touch-left { left: 20px; }
+#touch-right { right: 20px; }
+
+.touch-btn {
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    color: white;
+    font-size: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    touch-action: none;
+}
+.touch-btn:active { background: rgba(255, 255, 255, 0.5); }
+.touch-btn.small { width: 50px; height: 50px; font-size: 20px; }
+
+/* Touch Editor */
+#touch-editor-overlay {
+position: absolute;
+top: 0; left: 0; width: 100%; height: 100%;
+background: rgba(0,0,0,0.8);
+z-index: 2500;
+display: flex;
+justify-content: center;
+align-items: center;
+}
+.editor-msg {
+    position: absolute; top: 20px;
+    color: #0f0; font-size: 24px; font-weight: bold;
+    text-align: center;
+}
+.editable-btn {
+    z-index: 3001;
+    border: 2px dashed #ffff00;
+    background: rgba(255, 0, 0, 0.5);
+}
+
+.touch-btn.selected-btn {
+    border-color: #00ff00;
+    box-shadow: 0 0 15px #00ff00;
+    background: rgba(0, 255, 0, 0.3);
+}

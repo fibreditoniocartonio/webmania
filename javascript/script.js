@@ -29,6 +29,128 @@ const GAME_STATE = {
 
 //records su localStorage
 const STORAGE_KEY_RECORDS = "webmania_records";
+const STORAGE_KEY_SETTINGS = "webmania_settings";
+const ACTIONS = {
+    ACCEL: 'accel',
+    BRAKE: 'brake',
+    HANDBRAKE: 'handbrake',
+    LEFT: 'left',
+    RIGHT: 'right',
+    RESPAWN_FLY: 'resp_fly',
+    RESPAWN_STAND: 'resp_stand',
+    RESTART: 'restart',
+    PAUSE: 'pause'
+};
+
+const DEFAULT_SETTINGS = {
+    renderDistance: 150,
+    maxRecords: 100,
+    touchEnabled: false,
+    gamepadEnabled: true,
+    keyBinds: {
+        [ACTIONS.ACCEL]: ['w', 'ArrowUp'],
+        [ACTIONS.BRAKE]: ['s', 'ArrowDown'],
+        [ACTIONS.HANDBRAKE]: [' ', 'Shift'],
+        [ACTIONS.LEFT]: ['a', 'ArrowLeft'],
+        [ACTIONS.RIGHT]: ['d', 'ArrowRight'],
+        [ACTIONS.RESPAWN_FLY]: ['Enter', ''],
+        [ACTIONS.RESPAWN_STAND]: ['r', 'R'],
+        [ACTIONS.RESTART]: ['Delete', 'Backspace'],
+        [ACTIONS.PAUSE]: ['Escape', 'p']
+    },
+    // Indici bottoni gamepad (Standard Mapping)
+    gamepadBinds: {
+        [ACTIONS.ACCEL]: 7, // R2
+        [ACTIONS.BRAKE]: 6, // L2
+        [ACTIONS.HANDBRAKE]: 0, // X / A
+        [ACTIONS.RESPAWN_FLY]: 3, // Triangolo / Y
+        [ACTIONS.RESPAWN_STAND]: 1, // Cerchio / B
+        [ACTIONS.RESTART]: 8, // Select / Back
+        [ACTIONS.PAUSE]: 9  // Start
+    },
+
+    touchLayout: {
+        "btn-t-left": {left: "41px", top: "493px", scale: 1.5},
+        "btn-t-right": {left: "191px", top: "493px", scale: 1.5},
+        "btn-t-accel": {left: "1083px",top: "423px",scale: 1.6},
+        "btn-t-brake": {left: "1229px",top: "497px",scale: 1.4},
+        "btn-t-pause": {left: "5px",top: "5px",scale: 1},
+        "btn-t-handbrake": {left: "1233px",top: "239px",scale: 1.7}
+    }
+};
+
+let gameSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+const inputState = { accel: 0, brake: 0, handbrake: 0, steerL: 0, steerR: 0 };
+
+function loadSettings() {
+    const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
+    if (saved) {
+        const parsed = JSON.parse(saved);
+        // Merge profondo per non perdere nuove chiavi (es. HANDBRAKE) se l'utente ha vecchi settings
+        gameSettings = {
+            ...DEFAULT_SETTINGS,
+            ...parsed,
+            keyBinds: {...DEFAULT_SETTINGS.keyBinds, ...parsed.keyBinds},
+            gamepadBinds: {...DEFAULT_SETTINGS.gamepadBinds, ...parsed.gamepadBinds}
+        };
+    } else {
+        if('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+            gameSettings.touchEnabled = true;
+        }
+    }
+    applySettings();
+}
+
+function saveSettings() {
+    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(gameSettings));
+    applySettings();
+}
+
+function applySettings() {
+    // Fog
+    if(scene && scene.fog) {
+        scene.fog.far = parseInt(gameSettings.renderDistance);
+    }
+    // Touch UI - Aggiornamento Immediato
+    const touchDiv = document.getElementById('touch-controls');
+    if(touchDiv) {
+        // Mostra solo se abilitato E siamo in gioco (non nel menu principale)
+        const shouldShow = gameSettings.touchEnabled && currentState !== GAME_STATE.MENU;
+        touchDiv.style.display = shouldShow ? 'block' : 'none';
+
+        // Applica layout
+        if(gameSettings.touchLayout) {
+            for(const [id, params] of Object.entries(gameSettings.touchLayout)) {
+                const el = document.getElementById(id);
+                if(el) {
+                    // Posizione
+                    el.style.left = params.left || '';
+                    el.style.right = params.right || '';
+                    el.style.top = params.top || '';
+                    el.style.bottom = params.bottom || '';
+
+                    // Scala (Default 1.0 se manca)
+                    const scale = params.scale || 1.0;
+                    el.style.transform = `scale(${scale})`;
+                    // Importante: transform origin center per zoomare sul posto
+                    el.style.transformOrigin = "center center";
+                }
+            }
+        }
+    }
+    updateTouchVisibility();
+}
+function updateTouchVisibility() {
+    const touchDiv = document.getElementById('touch-controls');
+    if(!touchDiv) return;
+    const isEditing = document.getElementById('touch-editor-overlay').style.display === 'flex';
+    const isInGame = currentState !== GAME_STATE.MENU;
+    if (gameSettings.touchEnabled && (isInGame || isEditing)) {
+        touchDiv.style.display = 'block';
+    } else {
+        touchDiv.style.display = 'none';
+    }
+}
 
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
@@ -94,7 +216,7 @@ function init() {
         // 1. Setup Three.js
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
+        scene.fog = new THREE.Fog(0x87CEEB, 20, gameSettings.renderDistance || 150);
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -141,6 +263,7 @@ function init() {
         }
         // Inizializza loop
         lastFrameTime = performance.now();
+        loadSettings();
         animate();
         // Rimuovi vecchio listener se presente
         // document.getElementById('gen-btn')... RIMOSSO
@@ -178,7 +301,7 @@ function startCountdown(count) {
             uiCountdown.style.color = "#fff";
             currentState = GAME_STATE.RACING;
         }
-    }, 500); // 600ms per un countdown più rapido come richiesto
+    }, 400);
 }
 
 // --- GENERATORE MODULARE PISTA ---
@@ -199,7 +322,7 @@ const TRACK_CFG = {
     blockSize: 20,
     wallHeight: 1.5,
     rampPadding: 4.0, // Segmento piatto inizio/fine rampa
-    maxRampSlope: 0.6, // Pendenza massima (evita muri verticali)
+    maxRampSlope: 0.4, // Pendenza massima (evita muri verticali)
     colors: {
         road: 0x444444,
         wall: 0x888888,
@@ -832,22 +955,28 @@ function animate() {
         chassisBody.quaternion.inverse().vmult(chassisBody.velocity, localVelocity);
         const forwardSpeed = -localVelocity.z;
 
+        pollInputs(); // Leggi tutti gli input
+
         let engine = 0, brake = 0, steer = 0;
+
+        const inSteer = window.inputAnalog ? window.inputAnalog.steer : 0;
+        const inThrottle = window.inputAnalog ? window.inputAnalog.throttle : 0;
+        const inBrake = window.inputAnalog ? window.inputAnalog.brake : 0;
+        const inHandbrake = window.inputAnalog ? window.inputAnalog.handbrake : 0;
+
         if (currentState === GAME_STATE.RACING) {
-            if (keys.w) engine = CONFIG.engineForce;
-            else if (keys.s) {
-                if (forwardSpeed > 1.0) brake = CONFIG.brakeForce;
+            // Motore
+            if (inThrottle > 0) engine = CONFIG.engineForce * inThrottle;
+            else if (inBrake > 0) {
+                if (forwardSpeed > 1.0) brake = CONFIG.brakeForce * inBrake;
                 else engine = -CONFIG.engineForce / 2;
             }
-            if (keys.space) brake = CONFIG.brakeForce * 2;
-            steer = keys.a ? CONFIG.maxSteerVal : (keys.d ? -CONFIG.maxSteerVal : 0);
-        } else if (currentState === GAME_STATE.RESPAWNING_FLYING) {
-            //engine = CONFIG.engineForce; // Mantiene l'accelerazione durante il rewind
-            chassisBody.velocity.copy(currentCheckpointData.velocity);
-            chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
-            engine = 0;
-            brake = 0;
-            steer = 0;
+            // Freno a mano (somma forza)
+            if (inHandbrake > 0.1) {
+                brake += CONFIG.brakeForce * 2;
+                // Opzionale: lock ruote posteriori o slittamento laterale aumentato
+            }
+            steer = inSteer * CONFIG.maxSteerVal;
         }
 
         vehicle.applyEngineForce(engine, 0);
@@ -1000,6 +1129,14 @@ function doRespawn(type) {
         });
     }
 }
+function triggerRespawnLogic(type) {
+    if(currentState === GAME_STATE.MENU) return;
+    if(currentState === GAME_STATE.FINISHED || currentCheckpointData.index <= 0) {
+        resetTrack(false);
+        return;
+    }
+    doRespawn(type);
+}
 
 function resetTrack(generateNew = false) {
     if (generateNew) {
@@ -1036,64 +1173,155 @@ function resetTrack(generateNew = false) {
 }
 
 function setupInputs() {
-    window.addEventListener('keydown', e => {
-        if(e.repeat) return;
+    // 1. TASTIERA
+    window.addEventListener('keydown', e => handleKey(e.key, true));
+    window.addEventListener('keyup', e => handleKey(e.key, false));
 
-        if(e.key === 'w' || e.key === 'ArrowUp') keys.w = true;
-        if(e.key === 's' || e.key === 'ArrowDown') keys.s = true;
-        if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = true;
-        if(e.key === 'd' || e.key === 'ArrowRight') keys.d = true;
-        if(e.key === ' ') keys.space = true;
+    function handleKey(key, isPressed) {
+        if(isBindingKey) return; // Se stiamo rimappando, ignora
 
-        // Logica Invio (Respawn)
-        if(e.key === 'Enter') {
-            // Se la gara è finita o non abbiamo checkpoint (index <= 0 copre sia il -1 iniziale che lo start)
-            // allora l'unica opzione è ricominciare.
-            if (currentState === GAME_STATE.FINISHED || currentCheckpointData.index <= 0) {
-                resetTrack(false);
-                return;
-            }
-
-            if (currentState === GAME_STATE.RACING) {
-                isEnterPressed = true;
-                enterPressTime = performance.now();
-            }
-        }
-
-        // PAUSA
-        if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
-            if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.START) {
-                window.uiTogglePause();
-            } else if (currentState === GAME_STATE.PAUSED) {
-                window.uiResume();
-            }
-        }
-
-        if(e.key === 'Delete') resetTrack(false);
-    });
-
-        window.addEventListener('keyup', e => {
-            if(e.key === 'w' || e.key === 'ArrowUp') keys.w = false;
-            if(e.key === 's' || e.key === 'ArrowDown') keys.s = false;
-            if(e.key === 'a' || e.key === 'ArrowLeft') keys.a = false;
-            if(e.key === 'd' || e.key === 'ArrowRight') keys.d = false;
-            if(e.key === ' ') keys.space = false;
-
-            // Rilascio Invio: se premuto per poco tempo -> Flying Respawn
-            if(e.key === 'Enter' && isEnterPressed) {
-                isEnterPressed = false;
-                const duration = performance.now() - enterPressTime;
-                if (duration < 1500 && currentState === GAME_STATE.RACING) {
-                    doRespawn('flying');
+        // Cerca azione associata
+        for (const [action, binds] of Object.entries(gameSettings.keyBinds)) {
+            if (binds.includes(key)) {
+                // Se è un tasto continuo, aggiorna lo stato
+                if([ACTIONS.ACCEL, ACTIONS.BRAKE, ACTIONS.LEFT, ACTIONS.RIGHT, ACTIONS.HANDBRAKE].includes(action)) {
+                    updateActionState(action, isPressed ? 1 : 0);
+                }
+                // Se è un evento ONE-SHOT (solo su pressione)
+                else if (isPressed) {
+                    if(action === ACTIONS.PAUSE) togglePauseGame();
+                    if(action === ACTIONS.RESTART) resetTrack(false);
+                    if(action === ACTIONS.RESPAWN_STAND) triggerRespawnLogic('standing');
+                    if(action === ACTIONS.RESPAWN_FLY) triggerRespawnLogic('flying');
                 }
             }
-        });
+        }
+    }
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+    // 2. TOUCH
+    const touchBtns = document.querySelectorAll('.touch-btn');
+    touchBtns.forEach(btn => {
+        // Disabilita menu contestuale
+        btn.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); return false; };
+        // Handler unificato per l'inizio del tocco/click
+        const handlePointerStart = (e) => {
+            const isEditing = document.getElementById('touch-editor-overlay').style.display === 'flex';
+
+            if (isEditing) {
+                // Se siamo nell'editor, inizia il trascinamento
+                dragStart(e);
+            } else {
+                // Altrimenti, esegui l'azione di gioco
+                e.preventDefault(); // Previene eventi mouse fantasma su mobile
+                handleTouchInput(btn.dataset.action, true);
+            }
+        };
+        // Handler unificato per la fine del tocco/click
+        const handlePointerEnd = (e) => {
+            // L'evento di fine drag è gestito globalmente in dragEnd.
+            // Questo serve solo per fermare l'azione di gioco.
+            const isEditing = document.getElementById('touch-editor-overlay').style.display === 'flex';
+            if (!isEditing) {
+                e.preventDefault();
+                handleTouchInput(btn.dataset.action, false);
+            }
+        };
+        // Assegna i listener
+        btn.addEventListener('mousedown', handlePointerStart);
+        btn.addEventListener('mouseup', handlePointerEnd);
+        btn.addEventListener('mouseleave', handlePointerEnd); // Ferma l'azione se il mouse esce dal pulsante
+        btn.addEventListener('touchstart', handlePointerStart, { passive: false });
+        btn.addEventListener('touchend', handlePointerEnd, { passive: false });
+    });
+}
+function updateActionState(action, val) {
+    if(action === ACTIONS.ACCEL) inputState.accel = val;
+    if(action === ACTIONS.BRAKE) inputState.brake = val;
+    if(action === ACTIONS.HANDBRAKE) inputState.handbrake = val;
+    if(action === ACTIONS.LEFT) inputState.steerL = val;
+    if(action === ACTIONS.RIGHT) inputState.steerR = val;
+}
+
+// Stato raw per touch direzionale (per gestire A+D premuti insieme)
+let touchLeft = false, touchRight = false;
+document.getElementById('btn-t-left').addEventListener('touchstart', (e)=>{e.preventDefault(); touchLeft=true;});
+document.getElementById('btn-t-left').addEventListener('touchend', (e)=>{e.preventDefault(); touchLeft=false;});
+document.getElementById('btn-t-right').addEventListener('touchstart', (e)=>{e.preventDefault(); touchRight=true;});
+document.getElementById('btn-t-right').addEventListener('touchend', (e)=>{e.preventDefault(); touchRight=false;});
+// Logica Touch Centralizzata
+function handleTouchInput(action, active) {
+    if(action === 'left') inputState.steerL = active ? 1 : 0;
+    if(action === 'right') inputState.steerR = active ? 1 : 0;
+    if(action === 'accel') inputState.accel = active ? 1 : 0;
+    if(action === 'brake') inputState.brake = active ? 1 : 0;
+    if(action === 'handbrake') inputState.handbrake = active ? 1 : 0;
+    if(action === 'pause' && active) {
+        togglePauseGame();
+    }
+}
+
+function togglePauseGame() {
+    if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.START) window.uiTogglePause();
+    else if (currentState === GAME_STATE.PAUSED) window.uiResume();
+}
+
+// Funzione chiamata nel Game Loop (animate) PRMA della fisica
+function pollInputs() {
+    let acc = 0, brk = 0, hbrk = 0, str = 0;
+
+    // 1. Keyboard / Touch State (Digitali)
+    acc = inputState.accel;
+    brk = inputState.brake;
+    hbrk = inputState.handbrake;
+    if(inputState.steerL) str += 1;
+    if(inputState.steerR) str -= 1;
+
+    // 2. Gamepad Override (Analogici + Bottoni OneShot)
+    if (gameSettings.gamepadEnabled) {
+        const gp = navigator.getGamepads()[0];
+        if (gp) {
+            // Analogico Sinistro (Deadzone 0.2)
+            if (Math.abs(gp.axes[0]) > 0.2) str = -gp.axes[0];
+
+            // Trigger / Bottoni
+            const btnAcc = gp.buttons[gameSettings.gamepadBinds[ACTIONS.ACCEL]];
+            if(btnAcc) acc = Math.max(acc, btnAcc.value);
+
+            const btnBrk = gp.buttons[gameSettings.gamepadBinds[ACTIONS.BRAKE]];
+            if(btnBrk) brk = Math.max(brk, btnBrk.value);
+
+            const btnHbrk = gp.buttons[gameSettings.gamepadBinds[ACTIONS.HANDBRAKE]];
+            if(btnHbrk) hbrk = Math.max(hbrk, btnHbrk.value);
+
+            // D-Pad Steering
+            if(gp.buttons[14] && gp.buttons[14].pressed) str = 1;
+            if(gp.buttons[15] && gp.buttons[15].pressed) str = -1;
+
+            // GESTIONE ONE-SHOT GAMEPAD (Senza ripetizione 60fps)
+            // Usiamo un oggetto per tracciare lo stato precedente dei bottoni gamepad
+            if(!window.gpPrevState) window.gpPrevState = {};
+
+            const checkPress = (act, fn) => {
+                const idx = gameSettings.gamepadBinds[act];
+                const pressed = gp.buttons[idx] && gp.buttons[idx].pressed;
+                if(pressed && !window.gpPrevState[act]) { fn(); }
+                window.gpPrevState[act] = pressed;
+            };
+
+            checkPress(ACTIONS.PAUSE, togglePauseGame);
+            checkPress(ACTIONS.RESTART, () => resetTrack(false));
+            checkPress(ACTIONS.RESPAWN_STAND, () => triggerRespawnLogic('standing'));
+            checkPress(ACTIONS.RESPAWN_FLY, () => triggerRespawnLogic('flying'));
+        }
+    }
+
+    // Clamp valori finali
+    str = Math.max(-1, Math.min(1, str));
+    acc = Math.min(1, acc);
+    brk = Math.min(1, brk);
+
+    // Esporta per animate()
+    window.inputAnalog = { steer: str, throttle: acc, brake: brk, handbrake: hbrk };
 }
 
 function saveRunToHistory(time) {
@@ -1191,6 +1419,7 @@ window.uiStartGame = (forceSeed = null) => {
 
     generateTrack(groundMat, turboMat, finalSeed);
     resetTrack(false); // Posiziona auto e start countdown
+    updateTouchVisibility();
 };
 
 window.uiTogglePause = () => {
@@ -1200,28 +1429,25 @@ window.uiTogglePause = () => {
         currentState = GAME_STATE.PAUSED;
         document.getElementById('pause-modal').style.display = 'flex';
         uiTimer.style.opacity = '0.5';
-
         // LOGICA VISIBILITÀ PULSANTI RESPAWN
         // Devono apparire solo se la logica di gioco lo permette (similmente al tasto INVIO)
         // 1. Non deve essere finito (FINISHED)
         // 2. Deve aver superato lo start (index > 0). Index 0 è lo start, index -1 è pre-start.
         const canRespawn = (currentState !== GAME_STATE.FINISHED && currentCheckpointData.index > 0);
         const displayMode = canRespawn ? 'block' : 'none';
-
         document.getElementById('btn-respawn-fly').style.display = displayMode;
         document.getElementById('btn-respawn-stand').style.display = displayMode;
     }
+    updateTouchVisibility();
 };
 
 window.uiResume = () => {
-    currentState = GAME_STATE.RACING; // O lo stato precedente
-    // Correzione: se eravamo in START o FINISH, bisogna gestire.
-    // Semplificazione: Se resumed, si assume RACING se non era FINISH.
+    currentState = GAME_STATE.RACING;
     if (gameTime <= 0) currentState = GAME_STATE.START;
-
     document.getElementById('pause-modal').style.display = 'none';
     uiTimer.style.opacity = '1';
     lastFrameTime = performance.now(); // Evita salto temporale
+    updateTouchVisibility();
 };
 
 window.uiRespawn = (type) => {
@@ -1242,6 +1468,264 @@ window.uiExitToMenu = () => {
     // Pulisci URL hash
     history.pushState("", document.title, window.location.pathname + window.location.search);
 };
+
+// --- LOGICA MENU OPZIONI & BINDING ---
+window.uiOpenSubMenu = (id) => {
+    document.querySelectorAll('.menu-screen').forEach(el => el.style.display = 'none');
+    document.getElementById(id).style.display = 'flex';
+
+    if(id === 'opt-keys') renderKeyBinds();
+    if(id === 'opt-gamepad') renderGamepadStatus();
+};
+
+window.updateSetting = (key, val) => {
+    gameSettings[key] = val;
+    if(key === 'renderDistance') document.getElementById('val-render-dist').innerText = val;
+    if(key === 'maxRecords') document.getElementById('val-max-records').innerText = val;
+    saveSettings();
+};
+
+// Key Binding UI
+function renderKeyBinds() {
+    const list = document.getElementById('key-binds-list');
+    list.innerHTML = '';
+
+    const friendlyNames = {
+        [ACTIONS.ACCEL]: 'Acceleratore',
+        [ACTIONS.BRAKE]: 'Freno / Retro',
+        [ACTIONS.HANDBRAKE]: 'Freno a Mano',
+        [ACTIONS.LEFT]: 'Sinistra',
+        [ACTIONS.RIGHT]: 'Destra',
+        [ACTIONS.RESPAWN_FLY]: 'Respawn Chekpoint (Movimento)',
+        [ACTIONS.RESPAWN_STAND]: 'Respawn Chekpoint (Stazionario)',
+        [ACTIONS.RESTART]: 'Ricomincia Pista',
+        [ACTIONS.PAUSE]: 'Pausa'
+    };
+
+    for(const [action, keys] of Object.entries(gameSettings.keyBinds)) {
+        const row = document.createElement('div');
+        row.className = 'bind-row';
+
+        const label = document.createElement('span');
+        label.className = 'bind-label';
+        label.innerText = friendlyNames[action] || action;
+
+        const btnContainer = document.createElement('div');
+
+        // Slot 1
+        const btn1 = createBindBtn(action, 0, keys[0]);
+        // Slot 2
+        const btn2 = createBindBtn(action, 1, keys[1]);
+
+        btnContainer.appendChild(btn1);
+        btnContainer.appendChild(btn2);
+
+        row.appendChild(label);
+        row.appendChild(btnContainer);
+        list.appendChild(row);
+    }
+}
+
+function createBindBtn(action, index, currentKey) {
+    const btn = document.createElement('button');
+    btn.className = 'bind-btn ' + (!currentKey ? 'empty' : '');
+    btn.innerText = formatKeyName(currentKey);
+    btn.onclick = () => startBinding(action, index);
+    return btn;
+}
+
+function formatKeyName(key) {
+    if(!key) return '---';
+    if(key === ' ') return 'SPACE';
+    if(key.startsWith('Arrow')) return key.replace('Arrow', 'Freccia ');
+    return key.toUpperCase();
+}
+
+let isBindingKey = false;
+let bindAction = null;
+let bindIndex = 0;
+
+function startBinding(action, index) {
+    isBindingKey = true;
+    bindAction = action;
+    bindIndex = index;
+    document.getElementById('binding-overlay').style.display = 'flex';
+}
+
+window.cancelBinding = () => {
+    document.getElementById('binding-overlay').style.display = 'none';
+    isBindingKey = false;
+}
+
+window.addEventListener('keydown', (e) => {
+    if(!isBindingKey) return;
+    e.preventDefault();
+    e.stopPropagation(); // Evita che il gioco reagisca
+
+    if(e.key === 'Escape') {
+        window.cancelBinding();
+        return;
+    }
+
+    // Salva Tasto
+    const newBinds = [...gameSettings.keyBinds[bindAction]];
+    newBinds[bindIndex] = e.key;
+    gameSettings.keyBinds[bindAction] = newBinds;
+
+    saveSettings();
+    window.cancelBinding();
+    renderKeyBinds();
+}, true);
+
+window.resetKeysDefault = () => {
+    gameSettings.keyBinds = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.keyBinds));
+    saveSettings();
+    renderKeyBinds();
+};
+
+// --- TOUCH EDITOR ---
+let draggedEl = null;
+let selectedEl = null;
+let startX=0, startY=0;
+let startLeft=0, startTop=0;
+document.getElementById('touch-size-slider').addEventListener('input', (e) => {
+    if(selectedEl) {
+        const val = e.target.value;
+        selectedEl.style.transform = `scale(${val})`;
+        selectedEl.dataset.tempScale = val;
+    }
+});
+
+window.uiOpenTouchEditor = () => {
+    const editorOverlay = document.getElementById('touch-editor-overlay');
+    editorOverlay.style.display = 'flex';
+    const ctrl = document.getElementById('touch-controls');
+    ctrl.style.display = 'block';
+    ctrl.style.zIndex = '3005';
+    selectBtn(null);
+    document.querySelectorAll('.touch-btn').forEach(btn => {
+        btn.classList.add('editable-btn');
+        const currentTransform = btn.style.transform;
+        let currentScale = 1.0;
+        if(currentTransform && currentTransform.includes('scale')) {
+            const match = currentTransform.match(/scale\(([^)]+)\)/);
+    if(match) currentScale = parseFloat(match[1]);
+        }
+        btn.dataset.tempScale = currentScale;
+    });
+};
+window.uiCloseTouchEditor = () => {
+    document.getElementById('touch-editor-overlay').style.display = 'none';
+    const ctrl = document.getElementById('touch-controls');
+    ctrl.style.zIndex = '';
+    const layout = {};
+    const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-handbrake'];
+    buttonIds.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.classList.remove('editable-btn', 'selected-btn');
+            layout[btn.id] = {
+                left: btn.style.left,
+                top: btn.style.top,
+                right: btn.style.right,
+                bottom: btn.style.bottom,
+                scale: parseFloat(btn.dataset.tempScale || 1.0)
+            };
+        }
+    });
+    gameSettings.touchLayout = layout;
+    saveSettings();
+};
+window.resetTouchDefault = () => {
+    gameSettings.touchLayout = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.touchLayout));
+    // Pulisci stili inline
+    document.querySelectorAll('.touch-btn').forEach(btn => btn.style = "");
+    saveSettings();
+}
+function selectBtn(btn) {
+    if(selectedEl) selectedEl.classList.remove('selected-btn');
+    selectedEl = btn;
+    const label = document.getElementById('selected-btn-name');
+    const slider = document.getElementById('touch-size-slider');
+    if(selectedEl) {
+        selectedEl.classList.add('selected-btn');
+        label.innerText = "Modifica: " + selectedEl.id.replace('btn-t-', '').toUpperCase();
+        slider.value = selectedEl.dataset.tempScale || 1.0;
+        slider.disabled = false;
+    } else {
+        label.innerText = "Clicca un tasto per ridimensionarlo";
+        slider.disabled = true;
+    }
+}
+function dragStart(e) {
+    if(currentState !== GAME_STATE.MENU && document.getElementById('touch-editor-overlay').style.display !== 'flex') return;
+
+    // Preveniamo default browser (scrolling, selezione testo)
+    e.preventDefault();
+    if(e.type === 'touchstart') e.stopPropagation();
+
+    // Identifica il bottone (anche se clicco sull'icona interna)
+    const target = e.target.closest('.touch-btn');
+    if(!target) return;
+
+    draggedEl = target;
+    selectBtn(draggedEl); // Seleziona per lo slider
+
+    // Coordinate iniziali puntatore
+    startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+    startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+
+    // Posizione iniziale elemento (offset calcolato dal bounding rect è più sicuro)
+    const rect = draggedEl.getBoundingClientRect();
+    // Vogliamo settare top/left assoluti basati sulla viewport per il drag
+    // Reset right/bottom per evitare conflitti CSS durante il drag
+    draggedEl.style.right = 'auto';
+    draggedEl.style.bottom = 'auto';
+    draggedEl.style.left = rect.left + 'px';
+    draggedEl.style.top = rect.top + 'px';
+
+    startLeft = rect.left;
+    startTop = rect.top;
+
+    window.addEventListener('mousemove', dragMove);
+    window.addEventListener('touchmove', dragMove, {passive: false});
+    window.addEventListener('mouseup', dragEnd);
+    window.addEventListener('touchend', dragEnd);
+}
+function dragMove(e) {
+    if(!draggedEl) return;
+    e.preventDefault();
+
+    const clientX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+    const clientY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+
+    const deltaX = clientX - startX;
+    const deltaY = clientY - startY;
+
+    draggedEl.style.left = (startLeft + deltaX) + 'px';
+    draggedEl.style.top = (startTop + deltaY) + 'px';
+}
+function dragEnd() {
+    draggedEl = null;
+    window.removeEventListener('mousemove', dragMove);
+    window.removeEventListener('touchmove', dragMove);
+    window.removeEventListener('mouseup', dragEnd);
+    window.removeEventListener('touchend', dragEnd);
+}
+
+// Gamepad UI Helper
+function renderGamepadStatus() {
+    const el = document.getElementById('gamepad-status');
+    const gp = navigator.getGamepads()[0];
+    if(gp) {
+        el.innerText = `Connesso: ${gp.id}`;
+        el.style.color = '#00ff00';
+    } else {
+        el.innerText = "Premi un tasto sul controller...";
+        el.style.color = '#ffff00';
+        requestAnimationFrame(renderGamepadStatus);
+    }
+}
 
 // Init
 init();
