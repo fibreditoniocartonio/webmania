@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { GAME_VERSION } from './version.js';
 
 // --- CONFIGURAZIONE GLOBALE ---
 const CONFIG = {
@@ -18,12 +19,16 @@ const CONFIG = {
 };
 // Enum Stati Gioco
 const GAME_STATE = {
+    MENU: -1,
     START: 0,
     RACING: 1,
-    RESPAWNING_FLYING: 2, // "Fantasma" automatico
-    FINISHED: 3
+    RESPAWNING_FLYING: 2,
+    FINISHED: 3,
+    PAUSED: 4
 };
 
+//records su localStorage
+const STORAGE_KEY_RECORDS = "webmania_records";
 
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
@@ -36,6 +41,22 @@ let gameTime = 0; // Tempo di gioco effettivo (escluso pause)
 let lastFrameTime = 0;
 let bestTime = null;
 const BEST_TIME_KEY = 'trackmaniaCloneBestTime'; //localstorage
+
+let currentSeed = "";
+let rng;
+// Simple Mulberry32 PRNG
+function createRNG(str) {
+    let h = 1779033703 ^ str.length;
+    for(let i = 0; i < str.length; i++) {
+        h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+        h = h << 13 | h >>> 19;
+    }
+    return function() {
+        h = Math.imul(h ^ (h >>> 16), 2246822507);
+        h = Math.imul(h ^ (h >>> 13), 3266489909);
+        return ((h ^= h >>> 16) >>> 0) / 4294967296;
+    }
+}
 
 // Gestione Checkpoint Avanzata
 let currentCheckpointData = {
@@ -102,25 +123,28 @@ function init() {
 
 
         // 3. Setup Gioco
-        const savedBest = localStorage.getItem(BEST_TIME_KEY);
-        if (savedBest) {
-            bestTime = parseFloat(savedBest);
-            uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
-        }
-
         setupInputs();
         createCar(wheelMat);
-        generateTrack(groundMat, turboMat);
 
+        // Versione UI
+        document.getElementById('version-display').innerText = "v" + GAME_VERSION;
+        // Gestione URL per Seed Diretto
+        // Supporto per http://sito/#SEEDCODE
+        const hashSeed = window.location.hash.replace('#', '');
+        // O supporto per http://sito/SEEDCODE (se supportato dal server, altrimenti usa hash)
+        const pathSeed = window.location.pathname.split('/').pop();
+        const urlSeed = hashSeed || (pathSeed && pathSeed.length > 0 && pathSeed !== 'index.html' ? pathSeed : null);
+        if (urlSeed) {
+            window.uiStartGame(urlSeed);
+        } else {
+            currentState = GAME_STATE.MENU; // Start in Menu
+        }
         // Inizializza loop
         lastFrameTime = performance.now();
         animate();
-
-        // Listener bottone UI
-        document.getElementById('gen-btn').addEventListener('click', () => resetTrack(true));
-
-        console.log("Gioco Inizializzato");
-
+        // Rimuovi vecchio listener se presente
+        // document.getElementById('gen-btn')... RIMOSSO
+        console.log("Gioco Inizializzato v" + GAME_VERSION);
     } catch (e) {
         console.error(e);
     }
@@ -515,30 +539,34 @@ function checkTrackCollision(x, y, z, radiusCheck) {
 }
 
 //funzione principale di generazione pista
-function generateTrack(matPhysics, matTurbo) {
-    // RESET BEST TIME
+function generateTrack(matPhysics, matTurbo, seed) {
+    // Setup Seed
+    currentSeed = seed || Math.random().toString(36).substring(7);
+    rng = createRNG(currentSeed); // Inizializza il generatore
+
+    console.log("Generating Seed:", currentSeed);
+
+    // RESET BEST TIME (Logica esistente...)
     bestTime = null;
-    localStorage.removeItem(BEST_TIME_KEY);
     uiBestTime.innerText = "Best: --:--.---";
+    // Nota: rimuoviamo il removeItem per non cancellare la memoria del record specifico,
+    // ma qui stiamo caricando una nuova pista, quindi va bene resettare la UI.
 
     trackMeshes.forEach(m => scene.remove(m));
     trackBodies.forEach(b => world.removeBody(b));
     trackMeshes.length = 0;
     trackBodies.length = 0;
-    occupiedPoints.length = 0; // Reset collisioni
+    occupiedPoints.length = 0;
 
     const trackLength = 40;
     let cx = 0, cy = 0, cz = 0;
     let dir = 0;
 
-    // START
+    // ... START Block (codice esistente) ...
     createBlock(MODULES.START, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
-    trackBodies[trackBodies.length-1].isStart = true; // Flagghiamo lo start per il reset
+    trackBodies[trackBodies.length-1].isStart = true;
     occupiedPoints.push({x:cx, y:cy, z:cz, r:TRACK_CFG.blockSize});
-
-    // Avanzamento iniziale sicuro
-    const startOffset = TRACK_CFG.blockSize;
-    cz -= startOffset;
+    cz -= TRACK_CFG.blockSize; // startOffset
 
     for (let i = 0; i < trackLength; i++) {
         let validMoveFound = false;
@@ -548,39 +576,29 @@ function generateTrack(matPhysics, matTurbo) {
             attempts++;
             let potentialMoves = [];
 
-            // Helper direzione
-            const getDelta = (d, len) => {
+            const getDelta = (d, len) => { /* ... existing ... */
                 const rad = d * Math.PI / 2;
-                return {
-                    x: -Math.sin(rad) * len,
-                    z: -Math.cos(rad) * len
-                };
+                return { x: -Math.sin(rad) * len, z: -Math.cos(rad) * len };
             };
-
             const fwdDir = dir;
             const leftDir = (dir + 1) % 4;
             const rightDir = (dir + 3) % 4;
 
             // --- 1. RETTILINEI & RAMPE ---
-            const straightLen = TRACK_CFG.blockSize * (Math.random() > 0.6 ? 2 : 1);
+            // USA rng() INVECE DI Math.random()
+            const straightLen = TRACK_CFG.blockSize * (rng() > 0.6 ? 2 : 1);
             const dS = getDelta(fwdDir, straightLen);
 
-            // Check Straight
             if (!checkTrackCollision(cx + dS.x, cy, cz + dS.z, 5)) {
-                // Opzioni Rettilineo
                 potentialMoves.push({ type: MODULES.STRAIGHT, nextDir: dir, dx: dS.x, dy: 0, dz: dS.z, len: straightLen, w: 10 });
-
-                // Opzioni Rampa (solo se abbastanza spazio verticale)
                 if (cy < 40) {
-                    // Salita
-                    const h = 5 + Math.random() * 10;
+                    // USA rng()
+                    const h = 5 + rng() * 10;
                     potentialMoves.push({ type: MODULES.RAMP_UP, nextDir: dir, dx: dS.x, dy: h, dz: dS.z, len: straightLen, height: h, w: 5 });
                 }
                 if (cy > 10) {
-                    // Discesa
-                    const h = 5 + Math.random() * 10;
-                    // Per discesa: creiamo un blocco che scende.
-                    // Nota: createBlock gestisce la visuale, qui passiamo il delta Y negativo
+                    // USA rng()
+                    const h = 5 + rng() * 10;
                     potentialMoves.push({ type: MODULES.RAMP_DOWN, nextDir: dir, dx: dS.x, dy: -h, dz: dS.z, len: straightLen, height: h, w: 5 });
                 }
             }
@@ -588,28 +606,17 @@ function generateTrack(matPhysics, matTurbo) {
             // --- 2. CURVE ---
             const turnRadii = [TRACK_CFG.blockSize, TRACK_CFG.blockSize * 2.5];
             turnRadii.forEach(r => {
-                // Calcolo fine curva (approssimato a 90 gradi)
-                // Se guardo Nord(0) e giro SX: finisco a X-r, Z-r.
-                // Delta relativo alla posizione attuale e direzione attuale.
-
-                // Formule generiche per fine curva 90°
-                // NewPos = OldPos + (Forward * R) + (Side * R)
-                // Side è Left o Right vector.
-
-                const calcTurnEnd = (currDir, isLeft) => {
-                    const fwd = getDelta(currDir, r); // Vettore avanti R
+                const calcTurnEnd = (currDir, isLeft) => { /* ... existing ... */
+                    const fwd = getDelta(currDir, r);
                     const sideDir = isLeft ? (currDir + 1)%4 : (currDir + 3)%4;
-                    const side = getDelta(sideDir, r); // Vettore lato R
+                    const side = getDelta(sideDir, r);
                     return { x: fwd.x + side.x, z: fwd.z + side.z };
                 };
 
-                // Check Left
                 const endL = calcTurnEnd(dir, true);
                 if (!checkTrackCollision(cx + endL.x, cy, cz + endL.z, r/1.5)) {
                     potentialMoves.push({ type: MODULES.TURN_LEFT, nextDir: leftDir, dx: endL.x, dy: 0, dz: endL.z, radius: r, w: 6 });
                 }
-
-                // Check Right
                 const endR = calcTurnEnd(dir, false);
                 if (!checkTrackCollision(cx + endR.x, cy, cz + endR.z, r/1.5)) {
                     potentialMoves.push({ type: MODULES.TURN_RIGHT, nextDir: rightDir, dx: endR.x, dy: 0, dz: endR.z, radius: r, w: 6 });
@@ -617,67 +624,36 @@ function generateTrack(matPhysics, matTurbo) {
             });
 
             if (potentialMoves.length > 0) {
-                // Scegli mossa pesata
                 const totalW = potentialMoves.reduce((a,b)=>a+b.w,0);
-                let rand = Math.random() * totalW;
+                // USA rng()
+                let rand = rng() * totalW;
                 const move = potentialMoves.find(m => (rand -= m.w) < 0) || potentialMoves[0];
 
-                // Checkpoint logic
                 if (move.type === MODULES.STRAIGHT && i % 6 === 0 && i > 0) move.type = MODULES.CHECKPOINT;
                 if (i === trackLength - 1) move.type = MODULES.FINISH;
 
                 createBlock(move.type, cx, cy, cz, dir, {
-                    length: move.len,
-                    height: move.height,
-                    radius: move.radius,
-                    isLeft: (move.type === MODULES.TURN_LEFT)
+                    length: move.len, height: move.height, radius: move.radius, isLeft: (move.type === MODULES.TURN_LEFT)
                 });
 
-                // Aggiorna collisioni
-                // Aggiungiamo punti intermedi per curve grandi o rettilinei lunghi
+                // Update collision logic existing...
                 const steps = 3;
                 for(let k=1; k<=steps; k++) {
-                    occupiedPoints.push({
-                        x: cx + (move.dx * k/steps),
-                                        z: cz + (move.dz * k/steps),
-                                        r: 15 // Raggio sicurezza
-                    });
+                    occupiedPoints.push({ x: cx + (move.dx * k/steps), z: cz + (move.dz * k/steps), r: 15 });
                 }
 
-                cx += move.dx;
-                cy += move.dy;
-                cz += move.dz;
-                dir = move.nextDir;
+                cx += move.dx; cy += move.dy; cz += move.dz; dir = move.nextDir;
                 validMoveFound = true;
             }
         }
-
         if (!validMoveFound) {
-            // Se bloccato, piazza finish ed esci
             createBlock(MODULES.FINISH, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
             break;
         }
     }
 
-    /*lastCheckpointPosition.set(0, 5, -10);
-    lastCheckpointQuaternion.set(0, 0, 0, 1);
-    isRacing = true;
-    uiMsg.style.display = 'none';
-
-    if(chassisBody) {
-        chassisBody.position.set(0, 4, -10);
-        chassisBody.quaternion.set(0,0,0,1);
-        chassisBody.velocity.set(0,0,0);
-        chassisBody.angularVelocity.set(0,0,0);
-
-        // Reset code sospensioni
-        vehicle.wheelInfos.forEach((w, i) => {
-            vehicle.applyEngineForce(0, i);
-            vehicle.setBrake(0, i);
-        });
-    }*/
-
-    resetTrack(false); // Inizializza variabili e lancia lo start da fermo
+    // Non avviamo resetTrack qui automaticamente. La generazione è solo fisica.
+    // resetTrack verrà chiamato da startGame o dal loop.
 }
 
 // --- CREAZIONE AUTO ---
@@ -832,16 +808,16 @@ function animate() {
 
     const now = performance.now();
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
+
+    // Se siamo in pausa o nel menu, aggiorniamo lastFrameTime ma non la fisica
+    if (currentState === GAME_STATE.PAUSED || currentState === GAME_STATE.MENU) {
+        lastFrameTime = now;
+        renderer.render(scene, camera); // Renderizza statico (freeze)
+        return;
+    }
     lastFrameTime = now;
 
-    if (isEnterPressed && currentState === GAME_STATE.RACING) {
-        if (now - enterPressTime > 1500) {
-            isEnterPressed = false;
-            doRespawn('standing');
-        }
-    }
-
-    if (currentState !== GAME_STATE.START) {
+    if (currentState !== GAME_STATE.START && currentState !== GAME_STATE.FINISHED) {
         world.step(1 / CONFIG.stepFrequency);
         if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.RESPAWNING_FLYING) {
             gameTime += dt * 1000;
@@ -950,6 +926,7 @@ function animate() {
 
                 if (b.isFinish && currentState === GAME_STATE.RACING) {
                     currentState = GAME_STATE.FINISHED;
+                    saveRunToHistory(gameTime);
 
                     // PUNTO 3: Logica Miglior Tempo
                     if (bestTime === null || gameTime < bestTime) {
@@ -995,7 +972,7 @@ function doRespawn(type) {
         }
         chassisBody.velocity.set(0, 0, 0);
         chassisBody.angularVelocity.set(0, 0, 0);
-        gameTime = currentCheckpointData.timeStamp;
+        //gameTime = currentCheckpointData.timeStamp;
         startCountdown(count);
 
     } else if (type === 'flying') {
@@ -1012,7 +989,7 @@ function doRespawn(type) {
         chassisBody.velocity.copy(currentCheckpointData.velocity);
         chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
 
-        gameTime = currentCheckpointData.timeStamp;
+        //gameTime = currentCheckpointData.timeStamp;
         currentState = GAME_STATE.RESPAWNING_FLYING;
     }
 
@@ -1083,6 +1060,15 @@ function setupInputs() {
             }
         }
 
+        // PAUSA
+        if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+            if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.START) {
+                window.uiTogglePause();
+            } else if (currentState === GAME_STATE.PAUSED) {
+                window.uiResume();
+            }
+        }
+
         if(e.key === 'Delete') resetTrack(false);
     });
 
@@ -1109,6 +1095,153 @@ function setupInputs() {
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 }
+
+function saveRunToHistory(time) {
+    const record = {
+        seed: currentSeed,
+        version: GAME_VERSION,
+        date: new Date().toLocaleString(),
+        time: time,
+        formattedTime: formatTime(time)
+    };
+
+    let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+
+    // Controlla se esiste già questo seed e se abbiamo migliorato
+    const existingIndex = history.findIndex(r => r.seed === currentSeed);
+    if (existingIndex >= 0) {
+        if (time < history[existingIndex].time) {
+            history[existingIndex] = record; // Aggiorna se migliore
+        }
+    } else {
+        history.unshift(record); // Aggiungi in testa
+    }
+
+    // Tieni solo gli ultimi 100
+    if (history.length > 100) history = history.slice(0, 100);
+
+    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
+}
+
+// --- SISTEMA MENU UI ---
+
+// Helper navigazione
+function showScreen(id) {
+    document.querySelectorAll('.menu-screen').forEach(el => el.style.display = 'none');
+    document.getElementById(id).style.display = 'flex';
+}
+
+window.uiOpenPlay = () => {
+    // Genera seed random precompilato
+    document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
+    showScreen('menu-play');
+};
+
+window.uiOpenRecords = () => {
+    const list = document.getElementById('records-list');
+    list.innerHTML = '';
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+
+    if(history.length === 0) {
+        list.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Nessun record trovato.</div>';
+    } else {
+        history.forEach(rec => {
+            const div = document.createElement('div');
+            div.className = 'record-item';
+            div.innerHTML = `
+            <div class="record-meta">
+            <span class="record-seed">${rec.seed}</span>
+            <span style="color:#666; font-size:10px;">${rec.date} (v${rec.version})</span>
+            </div>
+            <div class="record-time">${rec.formattedTime}</div>
+            <div class="record-actions">
+            <button onclick="window.uiStartGame('${rec.seed}')">PLAY</button>
+            <button onclick="navigator.clipboard.writeText('${window.location.origin}/#${rec.seed}'); alert('Link copiato!')">SHARE</button>
+            </div>
+            `;
+            list.appendChild(div);
+        });
+    }
+    showScreen('menu-records');
+};
+
+window.uiOpenOptions = () => showScreen('menu-options');
+window.uiBackToHome = () => showScreen('menu-home');
+
+window.uiStartGame = (forceSeed = null) => {
+    const inputSeed = document.getElementById('seed-input').value.trim();
+    const finalSeed = forceSeed || inputSeed || "random";
+
+    // Nascondi Menu
+    document.getElementById('main-menu').style.display = 'none';
+    document.getElementById('pause-modal').style.display = 'none';
+
+    // Aggiorna URL Hash (opzionale, per condivisione rapida)
+    window.location.hash = finalSeed;
+
+    // Genera Pista
+    // Nota: dobbiamo recuperare i materiali dal world esistente o salvarli in init.
+    // Per semplicità, li ricreiamo al volo o li salviamo globalmente.
+    // Poiché generateTrack usa materiali passati, salviamo i riferimenti in init o usiamo globali.
+    // Modifica rapida: rendi groundMat e turboMat accessibili o ricreali (sono leggeri).
+    const groundMat = new CANNON.Material('ground');
+    const turboMat = new CANNON.Material('turbo');
+    // Nota: Per coerenza fisica bisognerebbe usare gli stessi materiali di init, ma Cannon li gestisce per ID.
+    // L'ideale è salvarli globalmente in init. Per ora va bene ricrearli se le contactMaterial sono nel world.
+
+    generateTrack(groundMat, turboMat, finalSeed);
+    resetTrack(false); // Posiziona auto e start countdown
+};
+
+window.uiTogglePause = () => {
+    if (currentState === GAME_STATE.PAUSED) {
+        window.uiResume();
+    } else {
+        currentState = GAME_STATE.PAUSED;
+        document.getElementById('pause-modal').style.display = 'flex';
+        uiTimer.style.opacity = '0.5';
+
+        // LOGICA VISIBILITÀ PULSANTI RESPAWN
+        // Devono apparire solo se la logica di gioco lo permette (similmente al tasto INVIO)
+        // 1. Non deve essere finito (FINISHED)
+        // 2. Deve aver superato lo start (index > 0). Index 0 è lo start, index -1 è pre-start.
+        const canRespawn = (currentState !== GAME_STATE.FINISHED && currentCheckpointData.index > 0);
+        const displayMode = canRespawn ? 'block' : 'none';
+
+        document.getElementById('btn-respawn-fly').style.display = displayMode;
+        document.getElementById('btn-respawn-stand').style.display = displayMode;
+    }
+};
+
+window.uiResume = () => {
+    currentState = GAME_STATE.RACING; // O lo stato precedente
+    // Correzione: se eravamo in START o FINISH, bisogna gestire.
+    // Semplificazione: Se resumed, si assume RACING se non era FINISH.
+    if (gameTime <= 0) currentState = GAME_STATE.START;
+
+    document.getElementById('pause-modal').style.display = 'none';
+    uiTimer.style.opacity = '1';
+    lastFrameTime = performance.now(); // Evita salto temporale
+};
+
+window.uiRespawn = (type) => {
+    window.uiResume();
+    doRespawn(type);
+};
+
+window.uiRestartTrack = () => {
+    window.uiResume();
+    resetTrack(false);
+};
+
+window.uiExitToMenu = () => {
+    document.getElementById('pause-modal').style.display = 'none';
+    document.getElementById('main-menu').style.display = 'flex';
+    showScreen('menu-home');
+    currentState = GAME_STATE.MENU;
+    // Pulisci URL hash
+    history.pushState("", document.title, window.location.pathname + window.location.search);
+};
 
 // Init
 init();

@@ -10,17 +10,64 @@
     <!-- Canvas del gioco -->
     <div id="game-container"></div>
 
-    <!-- Interfaccia Utente -->
+    <!-- Interfaccia di Gioco -->
     <div id="ui-layer">
         <div id="timer">00:00.000</div>
         <div id="best-time">Best: --:--.---</div>
         <div id="countdown"></div>
-        <div id="controls-hint">
-            WASD/Frecce: Guida | SPAZIO: Freno | INVIO: Checkpoint | CANC: Riavvia | <button id="gen-btn">Nuova Pista</button>
-        </div>
         <div id="message"></div>
         <!-- Box per errori -->
         <div id="error-log" style="color: red; background: rgba(0,0,0,0.8); display: none; padding: 10px; position: absolute; top:0; left:0; z-index:999;"></div>
+    </div>
+
+    <!-- Menu Principale (inizialmente visibile) -->
+    <div id="main-menu" class="menu-overlay">
+        <h1 class="game-title">WEBMANIA <span id="version-display"></span></h1>
+
+        <!-- Schermata Home -->
+        <div id="menu-home" class="menu-screen">
+            <button class="menu-btn" onclick="window.uiOpenPlay()">GIOCA</button>
+            <button class="menu-btn" onclick="window.uiOpenRecords()">RECORD</button>
+            <button class="menu-btn" onclick="window.uiOpenOptions()">OPZIONI</button>
+        </div>
+
+        <!-- Schermata Gioca (Input Seed) -->
+        <div id="menu-play" class="menu-screen" style="display:none;">
+            <h2>INSERISCI SEED</h2>
+            <input type="text" id="seed-input" placeholder="Es: 12345" maxlength="20">
+            <div class="btn-row">
+                <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+                <button class="menu-btn primary" onclick="window.uiStartGame()">INIZIA!</button>
+            </div>
+        </div>
+
+        <!-- Schermata Record -->
+        <div id="menu-records" class="menu-screen" style="display:none;">
+            <h2>ULTIMI 100 SEED</h2>
+            <div id="records-list">
+                <!-- Lista generata via JS -->
+            </div>
+            <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+        </div>
+
+        <!-- Schermata Opzioni -->
+        <div id="menu-options" class="menu-screen" style="display:none;">
+            <h2>OPZIONI</h2>
+            <p>Work in Progress...</p>
+            <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+        </div>
+    </div>
+
+    <!-- Modale Pausa (In-Game) -->
+    <div id="pause-modal" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.6);">
+        <div class="paused-box">
+            <h2>PAUSA</h2>
+            <button class="menu-btn" onclick="window.uiResume()">RIPRENDI</button>
+            <button id="btn-respawn-fly" class="menu-btn" onclick="window.uiRespawn('flying')">RESPAWN (FLYING)</button>
+            <button id="btn-respawn-stand" class="menu-btn" onclick="window.uiRespawn('standing')">RESPAWN (STANDING)</button>
+            <button class="menu-btn" onclick="window.uiRestartTrack()">RICOMINCIA PISTA</button>
+            <button class="menu-btn danger" onclick="window.uiExitToMenu()">TORNA AL MENU</button>
+        </div>
     </div>
 
     <!-- Import Map corretta per ES Modules -->
@@ -35,13 +82,7 @@
     </script>
 
     <!-- Gestore errori globale -->
-    <script>
-        window.onerror = function(msg, source, lineno, colno, error) {
-            const el = document.getElementById('error-log');
-            el.style.display = 'block';
-            el.innerHTML += `<p>Error: ${msg} <br> Line: ${lineno}</p>`;
-        };
-    </script>
+
 
     <script type="module" src="javascript/script.js"></script>
 </body>

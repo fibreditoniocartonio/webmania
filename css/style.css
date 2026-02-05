@@ -101,3 +101,129 @@ z-index: 100;
 .respawn-overlay {
     background-color: rgba(255, 0, 0, 0.3);
 }
+
+/* --- MENU SYSTEM --- */
+.menu-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto; /* Abilita click */
+    z-index: 2000;
+}
+.menu-overlay h2 { color: white; }
+
+.game-title {
+    font-size: 80px;
+    color: #fff;
+    font-style: italic;
+    text-shadow: 4px 4px 0 #ff4444;
+    margin-bottom: 20px;
+}
+
+.game-title span {
+    font-size: 20px;
+    color: #888;
+    text-shadow: none;
+    font-style: normal;
+}
+
+.menu-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    max-width: 500px;
+    align-items: center;
+}
+
+.menu-btn {
+    width: 100%;
+    padding: 15px;
+    font-size: 24px;
+    background: #333;
+    border: 2px solid #555;
+    color: #fff;
+    text-transform: uppercase;
+    transition: all 0.2s;
+}
+
+.menu-btn:hover {
+    background: #fff;
+    color: #000;
+    transform: scale(1.05);
+}
+
+.menu-btn.primary { background: #00aa00; border-color: #00ff00; }
+.menu-btn.secondary { background: #555; }
+.menu-btn.danger { background: #aa0000; border-color: #ff0000; }
+
+#seed-input {
+width: 100%;
+padding: 15px;
+font-size: 30px;
+text-align: center;
+background: #222;
+border: 2px solid #fff;
+color: #ffd700;
+font-family: 'Courier New', Courier, monospace;
+font-weight: bold;
+text-transform: uppercase;
+}
+
+.btn-row {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+
+/* Lista Record */
+#records-list {
+width: 100%;
+height: 300px;
+overflow-y: auto;
+background: #222;
+border: 1px solid #444;
+margin-bottom: 20px;
+}
+
+.record-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #333;
+    color: #ccc;
+    font-size: 14px;
+}
+.record-item:hover { background: #333; }
+.record-meta { display: flex; flex-direction: column; text-align: left; }
+.record-seed { color: #fff; font-weight: bold; font-size: 18px; }
+.record-time { color: #ffd700; font-weight: bold; font-size: 20px; }
+.record-actions button { font-size: 12px; padding: 5px; margin-left: 5px; width: auto; }
+
+/* Pausa Trasparente */
+#pause-modal { background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); }
+/* Pausa Trasparente */
+#pause-modal { background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); }ù
+.paused-box {
+    /* Layout properties (prima ereditate da menu-screen) */
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+    max-width: 500px;
+    align-items: center;
+
+    /* Stili specifici Visuali */
+    background: transparent;
+    border: 2px solid #fff;
+    padding: 40px;
+    box-shadow: 0 0 20px rgba(255,255,255,0.2);
+}
