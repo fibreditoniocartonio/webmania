@@ -69,13 +69,13 @@ image-rendering: crisp-edges;
 
 #message {
     position: absolute;
-    top: 40%;
+    top: 30%;
     width: 100%;
     text-align: center;
-    font-size: 60px;
+    font-size: 40px;
     font-weight: bold;
     color: #fff;
-    text-shadow: 0 0 10px #00f;
+    text-shadow: 0 0 10px #000;
     display: none;
 }
 

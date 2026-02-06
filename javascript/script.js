@@ -232,6 +232,10 @@ let previewScene, previewCamera, previewRenderer, carPreviewGroup;
 let isPreviewActive = false;
 let previewAngle = 0;
 
+let bestRunSplits = []; // Tempi dei checkpoint del record salvato
+let currentRunSplits = []; // Tempi dei checkpoint della corsa attuale
+let checkpointCount = 0; // Contatore per assegnare l'ordine ai checkpoint
+
 // Stato Corrente
 let currentState = GAME_STATE.START;
 let gameTime = 0; // Tempo di gioco effettivo (escluso pause)
@@ -447,13 +451,24 @@ const BLOCK_BUILDERS = {
             let color = TRACK_CFG.colors.checkRing;
             if (params.type === MODULES.START) color = TRACK_CFG.colors.startRing;
             if (params.type === MODULES.FINISH) color = TRACK_CFG.colors.finishRing;
-
+            //1. ARCO
             const arch = new THREE.Mesh(
                 new THREE.TorusGeometry(8, 1, 8, 24, Math.PI),
                                         new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 })
             );
             arch.position.set(0, 0, -len/2);
+            // 2. LINEA A TERRA
+            // Creiamo un piano leggermente più largo della strada
+            const lineGeo = new THREE.BoxGeometry(width, 0.1, 1.5);
+            const lineMat = new THREE.MeshStandardMaterial({
+                color: color,
+                transparent: false
+            });
+            const lineMesh = new THREE.Mesh(lineGeo, lineMat);
+            lineMesh.position.set(0, 0.26, -len/2);
+            container.add(lineMesh);
             container.add(arch);
+            body.triggerZ = -len / 2;
             if(params.type === MODULES.FINISH) body.isFinish = true;
             if(params.type === MODULES.CHECKPOINT) body.isCheckpoint = true;
         }
@@ -714,6 +729,13 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
     body.quaternion.copy(container.quaternion);
 
     // Dispatcher pattern
+    if (type === MODULES.CHECKPOINT) {
+        body.isCheckpoint = true;
+        body.cpOrder = checkpointCount++;
+    }
+    if (type === MODULES.FINISH) body.isFinish = true;
+    if (type === MODULES.START) body.isStart = true;
+
     if (type === MODULES.RAMP_UP || type === MODULES.RAMP_DOWN) {
         // Fix per Ramp Down: Inverti altezza e logica nel builder
         const h = params.height || 10;
@@ -766,11 +788,16 @@ function generateTrack(matPhysics, matTurbo, seed) {
 
     console.log("Generating Seed:", currentSeed);
 
+    //reset checkpoint and load best-time if existing
+    checkpointCount = 0;
+    currentRunSplits = [];
+    bestRunSplits = [];
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
     const existingRecord = history.find(r => r.seed === currentSeed);
     if (existingRecord) {
         bestTime = existingRecord.time;
         uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+        bestRunSplits = existingRecord.splits || [];
     } else {
         bestTime = null;
         uiBestTime.innerText = "Best: --:--.---";
@@ -1214,8 +1241,8 @@ function animate() {
             const relPos = carPosWorld.clone().vsub(blockPosWorld);
             const localPos = blockQuatInverse.vmult(relPos);
 
-            const archZ = -TRACK_CFG.blockSize / 2;
-            const triggerDepth = 2.0; // Aumentiamo un po' la tolleranza
+            const archZ = b.triggerZ !== undefined ? b.triggerZ : -TRACK_CFG.blockSize / 2;
+            const triggerDepth = 2;
             const triggerWidth = TRACK_CFG.blockSize / 2;
             const triggerHeight = 8;
 
@@ -1236,30 +1263,58 @@ function animate() {
                     currentCheckpointData.quaternion.copy(chassisBody.quaternion);
                     currentCheckpointData.velocity.copy(chassisBody.velocity);
                     currentCheckpointData.angularVelocity.copy(chassisBody.angularVelocity);
-                    currentCheckpointData.timeStamp = gameTime;
 
-                    uiMsg.innerText = "CHECKPOINT";
+                    currentCheckpointData.timeStamp = gameTime;
+                    const cpOrder = b.cpOrder;
+                    currentRunSplits[cpOrder] = currentCheckpointData.timeStamp;
+                    let html = `<div style="color: #ffff00;">${formatTime(currentCheckpointData.timeStamp)}</div>`;
+                    if (bestRunSplits[cpOrder] !== undefined) {
+                        const diff = currentCheckpointData.timeStamp - bestRunSplits[cpOrder];
+                        const sign = diff >= 0 ? "+" : "-";
+                        const diffColor = diff <= 0 ? "#00ff00" : "#ff0000";
+                        html += `<div style="color: ${diffColor}; font-size: 0.8em;">${sign}${formatTime(Math.abs(diff))}</div>`;
+                    }
+                    uiMsg.innerHTML = html; // Usiamo innerHTML
                     uiMsg.style.display = 'block';
-                    uiMsg.style.color = '#ffff00';
                     setTimeout(() => { if(currentState === GAME_STATE.RACING) uiMsg.style.display='none'; }, 800);
                 }
 
                 if (b.isFinish && currentState === GAME_STATE.RACING) {
-                    currentState = GAME_STATE.FINISHED;
-                    saveRunToHistory(gameTime);
-
-                    // PUNTO 3: Logica Miglior Tempo
-                    if (bestTime === null || gameTime < bestTime) {
-                        bestTime = gameTime;
-                        localStorage.setItem(BEST_TIME_KEY, bestTime);
-                        uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
-                        uiMsg.innerText = "NEW BEST!\n" + formatTime(gameTime);
-                        uiMsg.style.color = '#ffd700';
-                    } else {
-                        uiMsg.innerText = "FINISH!\n" + formatTime(gameTime);
-                        uiMsg.style.color = '#00ff00';
+                    const hitCount = Object.keys(currentRunSplits).length;
+                    if(hitCount < checkpointCount){
+                        uiMsg.innerHTML = `
+                            <div style="color: #ff0000; font-size: 1.5em;">CHECKPOINT MANCANTI!</div>
+                            <div style="color: #ffffff; font-size: 1.1em;">Hai preso ${hitCount} checkpoint su ${checkpointCount}</div>
+                        `;
+                        uiMsg.style.disp
+                        uiMsg.style.display = 'block';
+                        setTimeout(() => { if(currentState === GAME_STATE.RACING) uiMsg.style.display='none'; }, 2000);
+                    }else{
+                        currentState = GAME_STATE.FINISHED;
+                        saveRunToHistory(gameTime);
+                        let html = `<div style="color: #ffff00;">${formatTime(gameTime)}</div>`;
+                        if (bestTime !== null) {
+                            const diff = gameTime - bestTime;
+                            const sign = diff >= 0 ? "+" : "-";
+                            const diffColor = diff <= 0 ? "#00ff00" : "#ff0000";
+                            html += `<div style="color: ${diffColor}; font-size: 0.8em;">${sign}${formatTime(Math.abs(diff))}</div>`;
+                            if (gameTime < bestTime) {
+                                bestTime = gameTime;
+                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">NEW BEST TIME!</div>`;
+                                html += `<div style="color: #ffd700; font-size: 0.5em; margin-top:10px;">(old ${uiBestTime.innerText})</div>`;
+                                uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+                            }else{
+                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
+                            }
+                        } else {
+                            // Prima volta che finisce la pista
+                            bestTime = gameTime;
+                            uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+                            html += `<div style="color: #ffd700; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
+                        }
+                        uiMsg.innerHTML = html;
+                        uiMsg.style.display = 'block';
                     }
-                    uiMsg.style.display = 'block';
                 }
             }
         });
@@ -1341,6 +1396,7 @@ function resetTrack(generateNew = false) {
     // Reset Logico (Delete Key)
     currentCheckpointData.index = -1;
     currentCheckpointData.timeStamp = 0;
+    currentRunSplits = []; // Resetta i tempi della corsa attuale
 
     // Trova lo start
     const startBody = trackBodies.find(b => b.isStart);
@@ -1532,7 +1588,8 @@ function saveRunToHistory(time) {
         version: GAME_VERSION,
         date: new Date().toLocaleString(),
         time: time,
-        formattedTime: formatTime(time)
+        formattedTime: formatTime(time),
+        splits: currentRunSplits
     };
 
     let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
