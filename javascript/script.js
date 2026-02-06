@@ -44,6 +44,7 @@ const ACTIONS = {
 
 const DEFAULT_SETTINGS = {
     renderHeight: 468,
+    antialias: true,
     renderDistance: 150,
     maxRecords: 25,
     maxSkidmarks: 200,
@@ -72,12 +73,13 @@ const DEFAULT_SETTINGS = {
     },
 
     touchLayout: {
-        "btn-t-left": {left: "41px", top: "493px", scale: 1.5},
-        "btn-t-right": {left: "191px", top: "493px", scale: 1.5},
-        "btn-t-accel": {left: "1083px",top: "423px",scale: 1.6},
-        "btn-t-brake": {left: "1229px",top: "497px",scale: 1.4},
-        "btn-t-pause": {left: "5px",top: "5px",scale: 1},
-        "btn-t-handbrake": {left: "1233px",top: "239px",scale: 1.7}
+        "btn-t-left": {left: "2%", bottom: "5%", top: "auto", right: "auto", scale: 1.5},
+        "btn-t-right": {left: "15%", bottom: "5%", top: "auto", right: "auto", scale: 1.5},
+        "btn-t-accel": {right: "5%", bottom: "20%", top: "auto", left: "auto", scale: 1.6},
+        "btn-t-brake": {right: "5%", bottom: "5%", top: "auto", left: "auto", scale: 1.4},
+        "btn-t-handbrake": {right: "20%", bottom: "10%", top: "auto", left: "auto", scale: 1.7},
+        "btn-t-pause": {left: "2%", top: "2%", bottom: "auto", right: "auto", scale: 1.0},
+        "btn-t-toggle": {right: "2%", top: "2%", bottom: "auto", left: "auto", scale: 1.0}
     }
 };
 
@@ -127,6 +129,10 @@ function applySettings() {
     if(elSkids) elSkids.innerText = gameSettings.maxSkidmarks;
     document.getElementById('opt-max-skids').value = gameSettings.maxSkidmarks;
 
+    // Aggiorna Checkbox Antialias
+    const chkAA = document.getElementById('opt-antialias');
+    if(chkAA) chkAA.checked = (gameSettings.antialias !== undefined ? gameSettings.antialias : true);
+
     // Applica Risoluzione
     if(renderer) {
         onWindowResize();
@@ -164,10 +170,32 @@ function applySettings() {
 function updateTouchVisibility() {
     const touchDiv = document.getElementById('touch-controls');
     if(!touchDiv) return;
+    // Controlliamo l'hardware, non solo il setting
+    const hasHardware = window.hasTouchHardware;
+    const isGame = currentState !== GAME_STATE.MENU;
     const isEditing = document.getElementById('touch-editor-overlay').style.display === 'flex';
-    const isInGame = currentState !== GAME_STATE.MENU;
-    if (gameSettings.touchEnabled && (isInGame || isEditing)) {
+    // Il contenitore generale appare se siamo in gioco (o editor) e abbiamo uno schermo touch
+    if (isGame || isEditing) {
         touchDiv.style.display = 'block';
+        // Ora gestiamo la visibilità dei SINGOLI pulsanti
+        const btns = touchDiv.querySelectorAll('.touch-btn');
+        btns.forEach(btn => {
+            // Il pulsante Toggle e Pause si vedono sempre se il contenitore è attivo
+            if (btn.id === 'btn-t-toggle') {
+                btn.style.display = 'flex';
+                // Cambia icona in base allo stato
+                btn.innerText = gameSettings.touchEnabled ? '✖' : '👁';
+                btn.style.opacity = '1';
+            }
+            // Editor: mostra tutto
+            else if (isEditing) {
+                btn.style.display = 'flex';
+            }
+            // Pulsanti di gioco: dipendono dal setting
+            else {
+                btn.style.display = gameSettings.touchEnabled ? 'flex' : 'none';
+            }
+        });
     } else {
         touchDiv.style.display = 'none';
     }
@@ -239,7 +267,10 @@ function init() {
         scene.background = new THREE.Color(0x87CEEB);
         scene.fog = new THREE.Fog(0x87CEEB, 20, gameSettings.renderDistance || 150);
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
-        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer = new THREE.WebGLRenderer({
+            antialias: (gameSettings.antialias !== undefined ? gameSettings.antialias : true),
+            powerPreference: "high-performance"
+        });
         renderer.setPixelRatio(1);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
@@ -267,7 +298,6 @@ function init() {
         const wheelTurboContact = new CANNON.ContactMaterial(wheelMat, turboMat, { friction: 0.3, restitution: 0, contactEquationStiffness: 1000 });
         world.addContactMaterial(wheelGroundContact);
         world.addContactMaterial(wheelTurboContact);
-
 
         // 3. Setup Gioco
         setupInputs();
@@ -299,13 +329,21 @@ function init() {
 }
 function onWindowResize() {
     if(!camera || !renderer) return;
+    // 1. Calcola il nuovo aspetto della finestra
     const aspect = window.innerWidth / window.innerHeight;
+    // 2. Aggiorna la camera
     camera.aspect = aspect;
     camera.updateProjectionMatrix();
-    // Usa il setting salvato per l'altezza, calcola la larghezza
+    // 3. Calcola la risoluzione interna basata sulle impostazioni (es. 468p)
     const h = parseInt(gameSettings.renderHeight) || parseInt(DEFAULT_SETTINGS.renderHeight);
     const w = Math.floor(h * aspect);
+    // 4. Imposta la risoluzione interna (buffer pixel)
+    // 'false' dice a Three.js di NON cambiare lo stile CSS, ma noi lo forziamo sotto per sicurezza
     renderer.setSize(w, h, false);
+    // 5. Forza lo stile del canvas per riempire sempre lo schermo
+    // Questo risolve il problema del rettangolino piccolo in alto a sinistra
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
 }
 
 // Funzione Helper Countdown
@@ -1126,9 +1164,9 @@ function animate() {
             vehicle.wheelInfos[i].mesh.quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
         }
 
-        const camOffset = new THREE.Vector3(0, 4.0, 8.0);
+        const camOffset = new THREE.Vector3(0, 4.0, 6.5);
         camOffset.applyMatrix4(chassisMesh.matrixWorld);
-        camera.position.lerp(camOffset, 0.1);
+        camera.position.lerp(camOffset, 0.2);
         camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
 
         if (chassisBody.position.y < -10 && currentState === GAME_STATE.RACING) {
@@ -1386,10 +1424,19 @@ function handleTouchInput(action, active) {
     if(action === 'pause' && active) {
         togglePauseGame();
     }
+    if(action === 'toggleui' && active) {
+        // Inverte l'impostazione globale
+        gameSettings.touchEnabled = !gameSettings.touchEnabled;
+        // Aggiorna anche la checkbox nel menu opzioni (se l'utente ci andrà dopo)
+        const chk = document.getElementById('chk-touch');
+        if(chk) chk.checked = gameSettings.touchEnabled;
+        // Salva e applica (questo chiamerà updateTouchVisibility)
+        saveSettings();
+    }
 }
 
 function togglePauseGame() {
-    if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.START) window.uiTogglePause();
+    if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.START || currentState === GAME_STATE.FINISHED) window.uiTogglePause();
     else if (currentState === GAME_STATE.PAUSED) window.uiResume();
 }
 
@@ -1614,6 +1661,13 @@ window.updateSetting = (key, val) => {
     }
     if(key === 'renderDistance') document.getElementById('val-render-dist').innerText = val;
     if(key === 'maxSkidmarks') document.getElementById('val-max-skids').innerText = val;
+    if(key === 'antialias') {
+        saveSettings();
+        if(confirm("Cambiare l'antialiasing richiede un riavvio della pagina. Ricaricare ora?")) {
+            window.location.reload();
+        }
+        return;
+    }
     saveSettings();
 };
 
@@ -1751,18 +1805,35 @@ window.uiCloseTouchEditor = () => {
     const ctrl = document.getElementById('touch-controls');
     ctrl.style.zIndex = '';
     const layout = {};
-    const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-handbrake'];
+    // 1. AGGIUNTO 'btn-t-toggle' ALLA LISTA
+    const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-handbrake', 'btn-t-toggle'];
+    // Dimensioni finestra per calcolo percentuale
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
     buttonIds.forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
             btn.classList.remove('editable-btn', 'selected-btn');
+            // 2. CONVERSIONE PIXEL -> PERCENTUALE
+            // Usiamo getBoundingClientRect per avere la posizione visiva reale in pixel
+            const rect = btn.getBoundingClientRect();
+            // Calcoliamo la percentuale (con 2 decimali di precisione)
+            const leftPerc = ((rect.left / winW) * 100).toFixed(2) + "%";
+            const topPerc = ((rect.top / winH) * 100).toFixed(2) + "%";
+
+            // Salviamo sempre come Top/Left in percentuale per uniformità
             layout[btn.id] = {
-                left: btn.style.left,
-                top: btn.style.top,
-                right: btn.style.right,
-                bottom: btn.style.bottom,
+                left: leftPerc,
+                top: topPerc,
+                right: 'auto',   // Resettiamo right/bottom per evitare conflitti
+                bottom: 'auto',
                 scale: parseFloat(btn.dataset.tempScale || 1.0)
             };
+            // Applichiamo subito lo stile pulito (percentuale) all'elemento
+            btn.style.left = leftPerc;
+            btn.style.top = topPerc;
+            btn.style.right = 'auto';
+            btn.style.bottom = 'auto';
         }
     });
     gameSettings.touchLayout = layout;

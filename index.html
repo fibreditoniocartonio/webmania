@@ -19,13 +19,14 @@
         <div id="error-log" style="color: red; background: rgba(0,0,0,0.8); display: none; padding: 10px; position: absolute; top:0; left:0; z-index:999;"></div>
     </div>
      <!-- Overlay Controlli Touch (In-Game) -->
-<div id="touch-controls" style="display: none;">
+    <div id="touch-controls" style="display: none;">
             <button class="touch-btn" data-action="left" id="btn-t-left">◄</button>
             <button class="touch-btn" data-action="right" id="btn-t-right">►</button>
             <button class="touch-btn" data-action="accel" id="btn-t-accel">▲</button>
             <button class="touch-btn" data-action="brake" id="btn-t-brake">▼</button>
             <button class="touch-btn small" data-action="pause" id="btn-t-pause">||</button>
             <button class="touch-btn" data-action="handbrake" id="btn-t-handbrake">✋</button>
+            <button class="touch-btn small" data-action="toggleui" id="btn-t-toggle">👁</button>
         </div>
         <!-- Editor Touch (Visibile solo nelle opzioni) -->
         <div id="touch-editor-overlay" style="display: none; z-index: 3000; flex-direction: column;">
@@ -89,6 +90,10 @@
                 <label>Risoluzione Interna</label>
                 <input type="range" id="opt-render-height" min="144" max="1080" step="36" onchange="window.updateSetting('renderHeight', this.value)">
                 <span id="val-render-height"></span>
+            </div>
+            <div class="setting-row">
+                <label>Antialiasing (Richiede Ricarica pagina)</label>
+                <input type="checkbox" id="opt-antialias" onchange="window.updateSetting('antialias', this.checked)">
             </div>
             <div class="setting-row">
                 <label>Distanza Render (Fog)</label>
