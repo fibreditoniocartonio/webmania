@@ -84,13 +84,22 @@
         <!-- Sottomenu Generali -->
         <div id="opt-general" class="menu-screen" style="display:none;">
             <h2>GENERALI</h2>
-
+            <!-- Risoluzione Interna -->
+            <div class="setting-row">
+                <label>Risoluzione Interna</label>
+                <input type="range" id="opt-render-height" min="144" max="1080" step="36" onchange="window.updateSetting('renderHeight', this.value)">
+                <span id="val-render-height"></span>
+            </div>
             <div class="setting-row">
                 <label>Distanza Render (Fog)</label>
                 <input type="range" id="opt-render-dist" min="50" max="1000" step="25" onchange="window.updateSetting('renderDistance', this.value)">
                 <span id="val-render-dist"></span>
             </div>
-
+            <div class="setting-row">
+                <label>Quantità massima segni sgommate</label>
+                <input type="range" id="opt-max-skids" min="0" max="500" step="10" onchange="window.updateSetting('maxSkidmarks', this.value)">
+                <span id="val-max-skids"></span>
+            </div>
             <div class="setting-row">
                 <label>Max Record Salvati</label>
                 <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">

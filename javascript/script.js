@@ -43,8 +43,10 @@ const ACTIONS = {
 };
 
 const DEFAULT_SETTINGS = {
+    renderHeight: 468,
     renderDistance: 150,
-    maxRecords: 100,
+    maxRecords: 25,
+    maxSkidmarks: 200,
     touchEnabled: false,
     gamepadEnabled: true,
     keyBinds: {
@@ -111,6 +113,25 @@ function applySettings() {
     if(scene && scene.fog) {
         scene.fog.far = parseInt(gameSettings.renderDistance);
     }
+
+    // Aggiorna etichette nel menu (così si vedono i numeri salvati)
+    const elHeight = document.getElementById('val-render-height');
+    if(elHeight) elHeight.innerText = gameSettings.renderHeight + "p";
+    document.getElementById('opt-render-height').value = gameSettings.renderHeight;
+
+    const elDist = document.getElementById('val-render-dist');
+    if(elDist) elDist.innerText = gameSettings.renderDistance;
+    document.getElementById('opt-render-dist').value = gameSettings.renderDistance;
+
+    const elSkids = document.getElementById('val-max-skids');
+    if(elSkids) elSkids.innerText = gameSettings.maxSkidmarks;
+    document.getElementById('opt-max-skids').value = gameSettings.maxSkidmarks;
+
+    // Applica Risoluzione
+    if(renderer) {
+        onWindowResize();
+    }
+
     // Touch UI - Aggiornamento Immediato
     const touchDiv = document.getElementById('touch-controls');
     if(touchDiv) {
@@ -156,7 +177,6 @@ function updateTouchVisibility() {
 let scene, camera, renderer, world;
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
-const MAX_SKIDMARKS = 250;
 
 // Stato Corrente
 let currentState = GAME_STATE.START;
@@ -219,10 +239,14 @@ function init() {
         scene.background = new THREE.Color(0x87CEEB);
         scene.fog = new THREE.Fog(0x87CEEB, 20, gameSettings.renderDistance || 150);
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
-        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setPixelRatio(1);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.getElementById('game-container').appendChild(renderer.domElement);
+        onWindowResize();
+        window.addEventListener('resize', onWindowResize, false);
 
         // Luci
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -272,6 +296,16 @@ function init() {
     } catch (e) {
         console.error(e);
     }
+}
+function onWindowResize() {
+    if(!camera || !renderer) return;
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+    // Usa il setting salvato per l'altezza, calcola la larghezza
+    const h = parseInt(gameSettings.renderHeight) || parseInt(DEFAULT_SETTINGS.renderHeight);
+    const w = Math.floor(h * aspect);
+    renderer.setSize(w, h, false);
 }
 
 // Funzione Helper Countdown
@@ -873,18 +907,23 @@ function createCar(wheelMat) {
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 64;
     speedoCtx = canvas.getContext('2d');
+    speedoCtx.imageSmoothingEnabled = false;
     speedoTexture = new THREE.CanvasTexture(canvas);
-    
+    speedoTexture.minFilter = THREE.NearestFilter;
+    speedoTexture.magFilter = THREE.NearestFilter;
+    speedoTexture.generateMipmaps = false;
     const speedoPlane = new THREE.Mesh(
         new THREE.PlaneGeometry(0.6, 0.3),
-        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true, opacity: 1.0 })
+        new THREE.MeshBasicMaterial({
+            map: speedoTexture,
+            transparent: true,
+            opacity: 1.0
+        })
     );
     // Posizione: sul retro del corpo centrale (Z ~ 1.21), altezza media
-    speedoPlane.position.set(0, 0.5 + visualY, 1.21); 
-    // Rotazione 0: guarda indietro verso la telecamera
+    speedoPlane.position.set(0, 0.5 + visualY, 1.21);
     speedoPlane.rotation.y = 0; 
     carGroup.add(speedoPlane);
-
     chassisMesh = carGroup; 
     scene.add(chassisMesh);
 
@@ -893,7 +932,6 @@ function createCar(wheelMat) {
         chassisBody: chassisBody,
         indexRightAxis: 0, indexUpAxis: 1, indexForwardAxis: 2
     });
-
     const options = {
         radius: 0.45,
         directionLocal: new CANNON.Vec3(0, -1, 0),
@@ -910,19 +948,15 @@ function createCar(wheelMat) {
         customSlidingRotationalSpeed: -30,
         useCustomSlidingRotationalSpeed: true
     };
-
     const axisY = 0.3; 
     const axisZF = -1.4; 
     const axisZR = 1.3;  
     const widthHalf = 1.1;
-
     vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(widthHalf, axisY, axisZF)});
     vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(-widthHalf, axisY, axisZF)});
     vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(widthHalf, axisY, axisZR)});
     vehicle.addWheel({...options, chassisConnectionPointLocal: new CANNON.Vec3(-widthHalf, axisY, axisZR)});
-
     vehicle.addToWorld(world);
-
     // Mesh Ruote
     const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.6, 24); 
     wheelGeo.rotateZ(Math.PI/2);
@@ -930,7 +964,6 @@ function createCar(wheelMat) {
     const rimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.62, 16);
     rimGeo.rotateZ(Math.PI/2);
     const rimMat = new THREE.MeshStandardMaterial({ color: 0xffff00 });
-
     vehicle.wheelInfos.forEach(w => {
         const wheelGroup = new THREE.Group();
         const tire = new THREE.Mesh(wheelGeo, wheelMatVis);
@@ -938,10 +971,50 @@ function createCar(wheelMat) {
         tire.castShadow = true;
         wheelGroup.add(tire);
         wheelGroup.add(rim);
-        
         scene.add(wheelGroup);
         w.mesh = wheelGroup;
     });
+}
+// --- HELPER: TACHIMETRO DIGITALE A 7 SEGMENTI ---
+// Ordine segmenti: Top, TopRight, BotRight, Bottom, BotLeft, TopLeft, Middle
+const DIGIT_SEGMENTS = [
+    [1,1,1,1,1,1,0], // 0
+[0,1,1,0,0,0,0], // 1
+[1,1,0,1,1,0,1], // 2
+[1,1,1,1,0,0,1], // 3
+[0,1,1,0,0,1,1], // 4
+[1,0,1,1,0,1,1], // 5
+[1,0,1,1,1,1,1], // 6
+[1,1,1,0,0,0,0], // 7
+[1,1,1,1,1,1,1], // 8
+[1,1,1,1,0,1,1]  // 9
+];
+function drawDigitalNumber(ctx, number, startX, startY, digitWidth, digitHeight, thickness) {
+    const strNum = number.toString();
+    const spacing = thickness * 1.5; // Spazio tra i numeri
+    // Calcola l'offset X per centrare tutto il blocco di testo
+    const totalWidth = (strNum.length * digitWidth) + ((strNum.length - 1) * spacing);
+    let currentX = startX - (totalWidth / 2);
+    ctx.fillStyle = "#ffffff"; // Colore led (Bianco puro, zero sfumature)
+    for (let i = 0; i < strNum.length; i++) {
+        const digit = parseInt(strNum[i]);
+        if (isNaN(digit)) continue;
+        const segs = DIGIT_SEGMENTS[digit];
+        const x = currentX;
+        const y = startY - (digitHeight / 2);
+        const w = digitWidth;
+        const h = digitHeight;
+        const t = thickness;
+        // Disegna i rettangoli in base ai segmenti attivi
+        if (segs[0]) ctx.fillRect(x, y, w, t);                 // Top
+        if (segs[1]) ctx.fillRect(x + w - t, y, t, h / 2);     // TopRight
+        if (segs[2]) ctx.fillRect(x + w - t, y + h / 2, t, h / 2); // BotRight
+        if (segs[3]) ctx.fillRect(x, y + h - t, w, t);         // Bottom
+        if (segs[4]) ctx.fillRect(x, y + h / 2, t, h / 2);     // BotLeft
+        if (segs[5]) ctx.fillRect(x, y, t, h / 2);             // TopLeft
+        if (segs[6]) ctx.fillRect(x, y + (h / 2) - (t / 2), w, t); // Middle
+        currentX += digitWidth + spacing;
+    }
 }
 
 // --- LOOP PRINCIPALE ---
@@ -1010,7 +1083,7 @@ function animate() {
             if (w.sliding && currentState === GAME_STATE.RACING) {
                 // Throttling: crea una sgommata solo ogni 50ms per non intasare
                 if (gameTime % 50 < 25) {
-                    const skidGeo = new THREE.PlaneGeometry(0.5, 1.5);
+                    const skidGeo = new THREE.PlaneGeometry(0.35, 1.3);
                     const skidMat = new THREE.MeshBasicMaterial({
                         color: 0x000000,
                         transparent: true,
@@ -1025,11 +1098,12 @@ function animate() {
 
                     scene.add(skidMesh);
                     skidmarkMeshes.push(skidMesh);
-
-                    // Rimuovi le sgommate più vecchie se superiamo il limite
-                    if (skidmarkMeshes.length > MAX_SKIDMARKS) {
+                    const limit = parseInt(gameSettings.maxSkidmarks) || parseInt(DEFAULT_SETTINGS.maxSkidmarks);
+                    while (skidmarkMeshes.length > limit) {
                         const oldSkid = skidmarkMeshes.shift();
                         scene.remove(oldSkid);
+                        oldSkid.geometry.dispose();
+                        oldSkid.material.dispose();
                     }
                 }
             }
@@ -1063,11 +1137,7 @@ function animate() {
 
         const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
         speedoCtx.clearRect(0, 0, 128, 64);
-        speedoCtx.fillStyle = '#ffffff';
-        speedoCtx.font = 'bold 50px Courier New';
-        speedoCtx.textAlign = 'center';
-        speedoCtx.textBaseline = 'middle';
-        speedoCtx.fillText(kmh.toString(), 64, 32);
+        drawDigitalNumber(speedoCtx, kmh, 64, 32, 24, 44, 6);
         speedoTexture.needsUpdate = true;
 
         trackBodies.forEach((b, index) => {
@@ -1538,8 +1608,12 @@ window.uiOpenSubMenu = (id) => {
 
 window.updateSetting = (key, val) => {
     gameSettings[key] = val;
+    if(key === 'renderHeight') {
+        document.getElementById('val-render-height').innerText = val + "p";
+        onWindowResize();
+    }
     if(key === 'renderDistance') document.getElementById('val-render-dist').innerText = val;
-    if(key === 'maxRecords') document.getElementById('val-max-records').innerText = val;
+    if(key === 'maxSkidmarks') document.getElementById('val-max-skids').innerText = val;
     saveSettings();
 };
 
