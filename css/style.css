@@ -348,3 +348,21 @@ align-items: center;
     box-shadow: 0 0 15px #00ff00;
     background: rgba(0, 255, 0, 0.3);
 }
+
+/* Input Colore Custom */
+input[type="color"] {
+    -webkit-appearance: none;
+    border: none;
+    width: 50px;
+    height: 40px;
+    background: none;
+    cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+    border: 2px solid #fff;
+    border-radius: 4px;
+}
+

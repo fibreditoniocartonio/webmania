@@ -77,9 +77,48 @@
             <h2>OPZIONI</h2>
             <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">GENERALI</button>
             <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')">COMANDI</button>
-            <button class="menu-btn" onclick="alert('Presto disponibile!')">PERSONALIZZA AUTO</button>
-            <button class="menu-btn" onclick="alert('Webmania v'+GAME_VERSION+'\nBy You')">CREDITI</button>
+            <button class="menu-btn" onclick="window.uiOpenCustomize()">PERSONALIZZA AUTO</button>
+            <button class="menu-btn" onclick="window.open('https://fibreditoniocartonio.github.io/', '_blank')">CREDITI</button>
             <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+        </div>
+
+        <!-- Schermata Personalizza Auto -->
+        <div id="opt-customize" class="menu-screen" style="display:none; flex-direction: row; max-width: 900px; height: 500px; gap: 20px;">
+            <!-- Colonna Controlli (Sinistra) -->
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center;">
+                <h2>GARAGE</h2>
+                <div class="setting-row">
+                    <label>Carrozzeria</label>
+                    <input type="color" id="col-body" oninput="window.updateCarColor('body', this.value)">
+                </div>
+                <div class="setting-row">
+                    <label>Ruote</label>
+                    <input type="color" id="col-wheels" oninput="window.updateCarColor('wheels', this.value)">
+                </div>
+                <div class="setting-row">
+                    <label>Cerchioni</label>
+                    <input type="color" id="col-rims" oninput="window.updateCarColor('rims', this.value)">
+                </div>
+                <div class="setting-row">
+                    <label>Alettone</label>
+                    <input type="color" id="col-spoiler" oninput="window.updateCarColor('spoiler', this.value)">
+                </div>
+                <div class="setting-row">
+                    <label>Tachimetro</label>
+                    <input type="color" id="col-speedo" oninput="window.updateCarColor('speedo', this.value)">
+                </div>
+                <div style="margin-top: 20px; display: flex; gap: 10px;">
+                    <button class="menu-btn primary" onclick="window.saveCustomize()">SALVA</button>
+                    <button class="menu-btn" onclick="window.resetCustomize()">RESET</button>
+                </div>
+                <button class="menu-btn secondary" style="margin-top: 10px;" onclick="window.uiCloseCustomize()">INDIETRO</button>
+            </div>
+            <!-- Colonna Preview (Destra) -->
+            <div id="car-preview-container" style="flex: 1; background: #000; border: 2px solid #555; position: relative; height:100%;">
+                <div style="position: absolute; bottom: 0px; width: 100%; text-align: center; color: #fff; pointer-events: none; background: #000; ">
+                    TRASCINA PER RUOTARE
+                </div>
+            </div>
         </div>
 
         <!-- Sottomenu Generali -->
