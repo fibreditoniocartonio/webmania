@@ -75,7 +75,7 @@
         <!-- Schermata Opzioni Principale -->
         <div id="menu-options" class="menu-screen" style="display:none;">
             <h2>OPZIONI</h2>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">GENERALI</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">GENERALI & AUDIO</button>
             <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')">COMANDI</button>
             <button class="menu-btn" onclick="window.uiOpenCustomize()">PERSONALIZZA AUTO</button>
             <button class="menu-btn" onclick="window.open('https://fibreditoniocartonio.github.io/', '_blank')">CREDITI</button>
@@ -149,6 +149,18 @@
                 <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">
                 <span id="val-max-records"></span>
             </div>
+
+            <h2>AUDIO</h2>
+            <div class="setting-row">
+                <label>Volume Musica</label>
+                <input type="range" id="opt-vol-music" min="0" max="1" step="0.1" onchange="window.updateAudioSetting('musicVolume', this.value)">
+                <span id="val-vol-music"></span>
+            </div>
+            <div class="setting-row">
+                <label>Volume Effetti (SFX)</label>
+                <input type="range" id="opt-vol-sfx" min="0" max="1" step="0.1" onchange="window.updateAudioSetting('sfxVolume', this.value)">
+                <span id="val-vol-sfx"></span>
+            </div>            
 
             <button class="menu-btn secondary" onclick="window.uiOpenOptions()">INDIETRO</button>
         </div>

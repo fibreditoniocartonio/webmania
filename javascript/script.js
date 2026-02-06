@@ -48,6 +48,8 @@ const DEFAULT_SETTINGS = {
     renderDistance: 150,
     maxRecords: 25,
     maxSkidmarks: 200,
+    sfxVolume: 0.5,
+    musicVolume: 0.4,
     touchEnabled: false,
     gamepadEnabled: true,
     carColors: {
@@ -89,6 +91,29 @@ const DEFAULT_SETTINGS = {
         "btn-t-toggle": {right: "2%", top: "2%", bottom: "auto", left: "auto", scale: 1.0}
     }
 };
+
+const AUDIO_FILES = {
+    engine: 'audio/engine.wav',
+    skid: 'audio/skid.wav',
+    collision: 'audio/collision.ogg',
+    checkpoint: 'audio/checkpoint.and.menuClick.ogg',
+    countdown1: 'audio/countdown.3-2-1.ogg',
+    countdownGo: 'audio/countdown.go.ogg',
+    music: [
+        'audio/music.Pulp.mp3',
+        'audio/music.StartOff.mp3',
+        'audio/music.TicTac.mp3'
+    ]
+};
+let audioCtx = null;
+let sfxBuffers = {};
+let engineSource = null;
+let engineGain = null;
+let skidSource = null;
+let skidGain = null;
+let musicElement = new Audio();
+let currentMusicIndex = -1;
+let isMusicPlaying = false;
 
 let gameSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 const inputState = { accel: 0, brake: 0, handbrake: 0, steerL: 0, steerR: 0 };
@@ -149,6 +174,18 @@ function applySettings() {
     const elSkids = document.getElementById('val-max-skids');
     if(elSkids) elSkids.innerText = gameSettings.maxSkidmarks;
     document.getElementById('opt-max-skids').value = gameSettings.maxSkidmarks;
+
+    const elRecords = document.getElementById('val-max-records');
+    if(elRecords) elRecords.innerText = gameSettings.maxRecords;
+    document.getElementById('opt-max-records').value = gameSettings.maxRecords;
+
+    // Aggiorna UI Volume
+    const elVolMus = document.getElementById('val-vol-music');
+    if(elVolMus) elVolMus.innerText = Math.round(gameSettings.musicVolume*100) + "%";
+    document.getElementById('opt-vol-music').value = gameSettings.musicVolume;
+    const elVolSfx = document.getElementById('val-vol-sfx');
+    if(elVolSfx) elVolSfx.innerText = Math.round(gameSettings.sfxVolume*100) + "%";
+    document.getElementById('opt-vol-sfx').value = gameSettings.sfxVolume;
 
     // Aggiorna Checkbox Antialias
     const chkAA = document.getElementById('opt-antialias');
@@ -330,6 +367,7 @@ function init() {
         world.addContactMaterial(wheelTurboContact);
 
         // 3. Setup Gioco
+        initAudioSystem();
         setupInputs();
         createCar(wheelMat);
 
@@ -380,7 +418,7 @@ function onWindowResize() {
 function startCountdown(count) {
     currentState = GAME_STATE.START;
     uiCountdown.style.display = 'block';
-
+    playSfx('countdown1');
     uiCountdown.innerText = count;
 
     // Blocca auto
@@ -395,9 +433,11 @@ function startCountdown(count) {
         count--;
         if (count > 0) {
             uiCountdown.innerText = count;
+            playSfx('countdown1');
         } else if (count === 0) {
             uiCountdown.innerText = "GO!";
             uiCountdown.style.color = "#00ff00";
+            playSfx('countdownGo');
         } else {
             clearInterval(interval);
             uiCountdown.style.display = 'none';
@@ -919,6 +959,19 @@ function createCar(wheelMat) {
     chassisBody.addShape(chassisShape, new CANNON.Vec3(0, 0.5, 0));
     chassisBody.position.set(0, 4, -10);
     chassisBody.angularDamping = 0.5;
+
+    // --- AUDIO COLLISIONE ---
+    chassisBody.addEventListener("collide", (e) => {
+        // Calcola la forza dell'impatto (velocità relativa lungo la normale)
+        const relativeVelocity = e.contact.getImpactVelocityAlongNormal();
+        // Ignora impatti lievi (sotto 2.0)
+        if (Math.abs(relativeVelocity) > 2.0 && currentState === GAME_STATE.RACING) {
+            // Volume basato sull'impatto (max 1.0)
+            const vol = Math.min(Math.abs(relativeVelocity) / 15, 1.0);
+            playSfx('collision', vol);
+        }
+    });
+
     world.addBody(chassisBody);
 
     // 2. GRAFICA (F1 Low Poly) - MATERIALI GLOBALI
@@ -1100,6 +1153,34 @@ function drawDigitalNumber(ctx, number, startX, startY, digitWidth, digitHeight,
 function animate() {
     requestAnimationFrame(animate);
 
+    // --- GESTIONE AUDIO MOTORE ---
+    if (currentState === GAME_STATE.RACING && engineSource && engineGain && chassisBody) {
+        const localVelocity = new CANNON.Vec3(0,0,0);
+        chassisBody.quaternion.inverse().vmult(chassisBody.velocity, localVelocity);
+        const speed = Math.abs(localVelocity.z); // m/s
+        // Pitch: 0.8 (minimo) -> 2.0 (massimo a circa 60 m/s ~ 200kmh)
+        const pitch = 0.8 + (speed / 60) * 1.2;
+        engineSource.playbackRate.value = Math.min(pitch, 2.4);
+        // Volume: aumenta leggermente con la velocità + input acceleratore
+        const baseVol = 0.3 + (Math.min(speed, 20)/20) * 0.2;
+        const throttleBoost = (window.inputAnalog ? window.inputAnalog.throttle : 0) * 0.3;
+        engineGain.gain.value = (baseVol + throttleBoost) * gameSettings.sfxVolume;
+        // --- GESTIONE AUDIO SGOMMATA ---
+        if(skidGain) {
+            let sliding = false;
+            if(vehicle) {
+                vehicle.wheelInfos.forEach(w => { if(w.sliding) sliding = true; });
+            }
+            // Fade in/out rapido
+            const targetSkidVol = sliding ? 0.6 : 0.0;
+            skidGain.gain.setTargetAtTime(targetSkidVol * gameSettings.sfxVolume, audioCtx.currentTime, 0.1);
+        }
+    }else {
+        // AZZERA VOLUMI se in pausa, countdown o menu
+        if (engineGain) engineGain.gain.value = 0;
+        if (skidGain) skidGain.gain.value = 0;
+    }
+
     const now = performance.now();
     const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
 
@@ -1258,6 +1339,7 @@ function animate() {
                 }
 
                 if (b.isCheckpoint && currentState === GAME_STATE.RACING && currentCheckpointData.index !== index) {
+                    playSfx('checkpoint');
                     currentCheckpointData.index = index;
                     currentCheckpointData.position.copy(chassisBody.position);
                     currentCheckpointData.quaternion.copy(chassisBody.quaternion);
@@ -1290,6 +1372,7 @@ function animate() {
                         uiMsg.style.display = 'block';
                         setTimeout(() => { if(currentState === GAME_STATE.RACING) uiMsg.style.display='none'; }, 2000);
                     }else{
+                        playSfx('checkpoint');
                         currentState = GAME_STATE.FINISHED;
                         saveRunToHistory(gameTime);
                         let html = `<div style="color: #ffff00;">${formatTime(gameTime)}</div>`;
@@ -1302,6 +1385,7 @@ function animate() {
                                 bestTime = gameTime;
                                 html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">NEW BEST TIME!</div>`;
                                 html += `<div style="color: #ffd700; font-size: 0.5em; margin-top:10px;">(old ${uiBestTime.innerText})</div>`;
+                                bestRunSplits = currentRunSplits;
                                 uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
                             }else{
                                 html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
@@ -1309,6 +1393,7 @@ function animate() {
                         } else {
                             // Prima volta che finisce la pista
                             bestTime = gameTime;
+                            bestRunSplits = currentRunSplits;
                             uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
                             html += `<div style="color: #ffd700; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
                         }
@@ -1367,6 +1452,10 @@ function doRespawn(type) {
         //gameTime = currentCheckpointData.timeStamp;
         currentState = GAME_STATE.RESPAWNING_FLYING;
     }
+    
+    // Reset Audio immediato per evitare code di suoni vecchi
+    if (engineGain) engineGain.gain.value = 0;
+    if (skidGain) skidGain.gain.value = 0;
 
     if(vehicle) {
         vehicle.wheelInfos.forEach((w, i) => {
@@ -1659,6 +1748,11 @@ window.uiStartGame = (forceSeed = null) => {
     const inputSeed = document.getElementById('seed-input').value.trim();
     const finalSeed = forceSeed || inputSeed || "random";
 
+    // --- AUDIO START ---
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    manageMusic('start_new_track'); // Avvia nuova traccia
+    startCarSounds(); // Prepara i loop motore/skid
+
     // Nascondi Menu
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('pause-modal').style.display = 'none';
@@ -1686,6 +1780,9 @@ window.uiTogglePause = () => {
         window.uiResume();
     } else {
         currentState = GAME_STATE.PAUSED;
+        manageMusic('pause'); // Abbassa volume
+        if(engineGain) engineGain.gain.value = 0; // Muta motore in pausa
+        if(skidGain) skidGain.gain.value = 0;
         document.getElementById('pause-modal').style.display = 'flex';
         uiTimer.style.opacity = '0.5';
         // LOGICA VISIBILITÀ PULSANTI RESPAWN
@@ -1702,6 +1799,7 @@ window.uiTogglePause = () => {
 
 window.uiResume = () => {
     currentState = GAME_STATE.RACING;
+    manageMusic('resume');
     if (gameTime <= 0) currentState = GAME_STATE.START;
     document.getElementById('pause-modal').style.display = 'none';
     uiTimer.style.opacity = '1';
@@ -1720,6 +1818,9 @@ window.uiRestartTrack = () => {
 };
 
 window.uiExitToMenu = () => {
+    stopCarSounds();     // Ferma motore
+    manageMusic('stop'); // Ferma musica
+
     document.getElementById('pause-modal').style.display = 'none';
     document.getElementById('main-menu').style.display = 'flex';
     showScreen('menu-home');
@@ -1745,6 +1846,8 @@ window.updateSetting = (key, val) => {
     }
     if(key === 'renderDistance') document.getElementById('val-render-dist').innerText = val;
     if(key === 'maxSkidmarks') document.getElementById('val-max-skids').innerText = val;
+    if(key === 'maxRecords') document.getElementById('val-max-records').innerText = val;
+
     if(key === 'antialias') {
         saveSettings();
         if(confirm("Cambiare l'antialiasing richiede un riavvio della pagina. Ricaricare ora?")) {
@@ -2144,6 +2247,151 @@ window.resetCustomize = () => {
     applyCarColors();
     saveSettings();
 };
+
+// --- AUDIO MANAGER ---
+function initAudioSystem() {
+    window.AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    // Carica tutti gli SFX in memoria (Buffer)
+    for (const [key, path] of Object.entries(AUDIO_FILES)) {
+        if (key === 'music') continue;
+        fetch(path)
+            .then(response => response.arrayBuffer())
+            .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+            .then(audioBuffer => {
+                sfxBuffers[key] = audioBuffer;
+            })
+            .catch(e => console.error("Errore caricamento audio: " + path, e));
+    }
+
+    //sblocco audio nel caso in cui apro un link diretto a una pista
+    const resumeAudio = () => {
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().then(() => {
+                console.log("AudioContext sbloccato con successo");
+                // Se la musica doveva essere in riproduzione ma era bloccata, riproviamo
+                if (isMusicPlaying && musicElement.paused) {
+                    musicElement.play();
+                }
+                // Se i suoni dell'auto non erano partiti, avviamoli
+                if (currentState !== GAME_STATE.MENU) {
+                    startCarSounds();
+                }
+            });
+        }
+        // Rimuoviamo i listener dopo la prima interazione riuscita
+        window.removeEventListener('click', resumeAudio);
+        window.removeEventListener('keydown', resumeAudio);
+        window.removeEventListener('touchstart', resumeAudio);
+    };
+    window.addEventListener('click', resumeAudio);
+    window.addEventListener('keydown', resumeAudio);
+    window.addEventListener('touchstart', resumeAudio);
+
+    // Setup Musica
+    musicElement.loop = false;
+    musicElement.onended = () => {
+        if (isMusicPlaying) manageMusic('start_new_track');
+    };
+    musicElement.volume = gameSettings.musicVolume;
+}
+function playSfx(name, volumeScale = 1.0) {
+    if (!audioCtx || !sfxBuffers[name]) return;
+    // Resume context se sospeso (succede su Chrome finché l'utente non interagisce)
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = sfxBuffers[name];
+    
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = gameSettings.sfxVolume * volumeScale;
+    
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    source.start(0);
+}
+// Gestione Suoni Motore e Sgommata (Loop)
+function startCarSounds() {
+    if (!audioCtx || engineSource) return;
+    // Motore
+    if(sfxBuffers['engine']) {
+        engineSource = audioCtx.createBufferSource();
+        engineSource.buffer = sfxBuffers['engine'];
+        engineSource.loop = true;
+        
+        engineGain = audioCtx.createGain();
+        engineGain.gain.value = 0; // Parte muto
+        
+        engineSource.connect(engineGain);
+        engineGain.connect(audioCtx.destination);
+        engineSource.start(0);
+    }
+    // Sgommata
+    if(sfxBuffers['skid']) {
+        skidSource = audioCtx.createBufferSource();
+        skidSource.buffer = sfxBuffers['skid'];
+        skidSource.loop = true;
+        
+        skidGain = audioCtx.createGain();
+        skidGain.gain.value = 0; // Parte muto
+        
+        skidSource.connect(skidGain);
+        skidGain.connect(audioCtx.destination);
+        skidSource.start(0);
+    }
+}
+function stopCarSounds() {
+    if (engineSource) { engineSource.stop(); engineSource = null; }
+    if (skidSource) { skidSource.stop(); skidSource = null; }
+}
+function manageMusic(action) {
+    if (action === 'start_new_track') {
+        // Logica rotazione musica
+        if (currentMusicIndex === -1) {
+            // Prima volta assoluta: Random
+            currentMusicIndex = Math.floor(Math.random() * AUDIO_FILES.music.length);
+        } else {
+            // Successive: Sequenziale
+            currentMusicIndex = (currentMusicIndex + 1) % AUDIO_FILES.music.length;
+        }
+        
+        musicElement.src = AUDIO_FILES.music[currentMusicIndex];
+        musicElement.volume = gameSettings.musicVolume;         
+        musicElement.play().catch(e => console.log("Music play blocked", e));
+        isMusicPlaying = true;
+    } 
+    else if (action === 'stop') {
+        musicElement.pause();
+        musicElement.currentTime = 0;
+        isMusicPlaying = false;
+    }
+    else if (action === 'pause') {
+        musicElement.volume = gameSettings.musicVolume * 0.3; // Abbassa volume
+    }
+    else if (action === 'resume') {
+        musicElement.volume = gameSettings.musicVolume; // Ripristina volume
+    }
+}
+// Funzione speciale per l'UI settings per aggiornare realtime
+window.updateAudioSetting = (key, val) => {
+    window.updateSetting(key, val);
+    const num = parseFloat(val);
+    if(key === 'musicVolume') {
+        document.getElementById('val-vol-music').innerText = Math.round(num*100) + "%";
+        // Se siamo in pausa, il volume deve restare basso, altrimenti normale
+        if (currentState === GAME_STATE.PAUSED) musicElement.volume = num * 0.3;
+        else musicElement.volume = num;
+    }
+    if(key === 'sfxVolume') {
+        document.getElementById('val-vol-sfx').innerText = Math.round(num*100) + "%";
+        playSfx('checkpoint'); // Suono di test
+    }
+};
+document.addEventListener('click', (e) => {
+    if(e.target.tagName === 'BUTTON' && e.target.classList.contains('menu-btn')) {
+        playSfx('checkpoint', 0.5); // Usa il suono checkpoint come click (o uno dedicato)
+    }
+});
 
 // Init
 init();
