@@ -326,6 +326,14 @@ function formatTime(ms) {
     const milliseconds = Math.floor(ms % 1000);
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
 }
+function formatDiffHTML(ms) { // Helper per formattare il diff (parte non significante bianca/piccola)
+    const str = formatTime(ms);
+    let splitIdx = str.search(/[1-9]/);
+    if(splitIdx === -1) splitIdx = str.length - 1
+    const insignificant = str.substring(0, splitIdx);
+    const significant = str.substring(splitIdx);
+    return `<span style="font-size: 0.5em;">${insignificant}</span>${significant}`;
+}
 
 function init() {
     try {
@@ -416,19 +424,11 @@ function onWindowResize() {
 
 // Funzione Helper Countdown
 function startCountdown(count) {
+    if(uiCountdown.style.display === 'block'){return} //avoid multiple countDown
     currentState = GAME_STATE.START;
     uiCountdown.style.display = 'block';
     playSfx('countdown1');
     uiCountdown.innerText = count;
-
-    // Blocca auto
-    if(chassisBody) {
-        chassisBody.velocity.set(0,0,0);
-        chassisBody.angularVelocity.set(0,0,0);
-        chassisBody.position.copy(currentCheckpointData.position);
-        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
-    }
-
     const interval = setInterval(() => {
         count--;
         if (count > 0) {
@@ -1169,7 +1169,7 @@ function animate() {
         if(skidGain) {
             let sliding = false;
             if(vehicle) {
-                vehicle.wheelInfos.forEach(w => { if(w.sliding) sliding = true; });
+                vehicle.wheelInfos.forEach(w => { if(w.sliding && w.raycastResult.hasHit) sliding = true; });
             }
             // Fade in/out rapido
             const targetSkidVol = sliding ? 0.6 : 0.0;
@@ -1209,6 +1209,13 @@ function animate() {
 
         pollInputs(); // Leggi tutti gli input
 
+        let wheelsOnGround = 0; //leggo se la macchina è in aria o no
+        if (vehicle) {
+            vehicle.wheelInfos.forEach(w => {
+                if (w.raycastResult.hasHit) wheelsOnGround++;
+            });
+        }
+
         let engine = 0, brake = 0, steer = 0;
 
         const inSteer = window.inputAnalog ? window.inputAnalog.steer : 0;
@@ -1228,6 +1235,10 @@ function animate() {
                 brake += CONFIG.brakeForce * 2;
                 // Opzionale: lock ruote posteriori o slittamento laterale aumentato
             }
+            //se in aria e freno usa air lock
+            if((inBrake || inHandbrake) && wheelsOnGround === 0 ){
+                chassisBody.angularVelocity.set(0, 0, 0);
+            } 
             steer = inSteer * CONFIG.maxSteerVal;
         }
 
@@ -1354,7 +1365,7 @@ function animate() {
                         const diff = currentCheckpointData.timeStamp - bestRunSplits[cpOrder];
                         const sign = diff >= 0 ? "+" : "-";
                         const diffColor = diff <= 0 ? "#00ff00" : "#ff0000";
-                        html += `<div style="color: ${diffColor}; font-size: 0.8em;">${sign}${formatTime(Math.abs(diff))}</div>`;
+                        html += `<div style="color: ${diffColor}; font-size: 0.8em;">${sign}${formatDiffHTML(Math.abs(diff))}</div>`;
                     }
                     uiMsg.innerHTML = html; // Usiamo innerHTML
                     uiMsg.style.display = 'block';
@@ -1414,25 +1425,25 @@ function animate() {
 function doRespawn(type) {
     if (!chassisBody) return;
 
-    if (type === 'standing') { //INVIO lungo
+    if (type === 'standing') {
         let count = 3;
         const blockBody = trackBodies[currentCheckpointData.index];
         if (blockBody) { //respawn a checkpoint
-            const spawnPosition = blockBody.position.clone();
-            const localOffset = new CANNON.Vec3(0, 2, -TRACK_CFG.blockSize / 2);
-            const rotatedOffset = new CANNON.Vec3();
-            blockBody.quaternion.vmult(localOffset, rotatedOffset);
-            spawnPosition.vadd(rotatedOffset, spawnPosition);
-            chassisBody.position.copy(spawnPosition);
             chassisBody.quaternion.copy(blockBody.quaternion);
-            count = 1;
+            const spawnPos = blockBody.position.clone();
+            const zPos = blockBody.triggerZ !== undefined ? blockBody.triggerZ : -TRACK_CFG.blockSize / 2;
+            const localOffset = new CANNON.Vec3(0, 1.3, zPos);
+            const worldOffset = new CANNON.Vec3();
+            blockBody.quaternion.vmult(localOffset, worldOffset);
+            spawnPos.vadd(worldOffset, spawnPos);
+            chassisBody.position.copy(spawnPos);
+            count = 1; // Countdown veloce
         }else{
             chassisBody.position.copy(currentCheckpointData.position);
             chassisBody.quaternion.copy(currentCheckpointData.quaternion);
         }
         chassisBody.velocity.set(0, 0, 0);
         chassisBody.angularVelocity.set(0, 0, 0);
-        //gameTime = currentCheckpointData.timeStamp;
         startCountdown(count);
 
     } else if (type === 'flying') {
@@ -1491,9 +1502,9 @@ function resetTrack(generateNew = false) {
     const startBody = trackBodies.find(b => b.isStart);
     if (startBody) {
         const spawnPosition = startBody.position.clone();
-        const startOffset = new CANNON.Vec3(0, 0, -TRACK_CFG.blockSize / 2);
+        const startOffset = new CANNON.Vec3(0, 1.3, -TRACK_CFG.blockSize / 2);
         spawnPosition.vadd(startOffset, spawnPosition);
-        spawnPosition.y += 1.3;
+        
         currentCheckpointData.position.copy(spawnPosition);
         currentCheckpointData.quaternion.copy(startBody.quaternion); // La rotazione è corretta
     } else {
@@ -1784,7 +1795,6 @@ window.uiTogglePause = () => {
         if(engineGain) engineGain.gain.value = 0; // Muta motore in pausa
         if(skidGain) skidGain.gain.value = 0;
         document.getElementById('pause-modal').style.display = 'flex';
-        uiTimer.style.opacity = '0.5';
         // LOGICA VISIBILITÀ PULSANTI RESPAWN
         // Devono apparire solo se la logica di gioco lo permette (similmente al tasto INVIO)
         // 1. Non deve essere finito (FINISHED)
@@ -1802,7 +1812,6 @@ window.uiResume = () => {
     manageMusic('resume');
     if (gameTime <= 0) currentState = GAME_STATE.START;
     document.getElementById('pause-modal').style.display = 'none';
-    uiTimer.style.opacity = '1';
     lastFrameTime = performance.now(); // Evita salto temporale
     updateTouchVisibility();
 };
