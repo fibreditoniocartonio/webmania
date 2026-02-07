@@ -232,19 +232,14 @@ margin-bottom: 20px;
 /* Pausa Trasparente */
 #pause-modal { background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); }
 .paused-box {
-    /* Layout properties (prima ereditate da menu-screen) */
     display: flex;
     flex-direction: column;
     gap: 15px;
     width: 100%;
     max-width: 500px;
     align-items: center;
-
-    /* Stili specifici Visuali */
     background: transparent;
-    border: 2px solid #fff;
     padding: 40px;
-    box-shadow: 0 0 20px rgba(255,255,255,0.2);
 }
 
 /* --- SETTINGS UI --- */

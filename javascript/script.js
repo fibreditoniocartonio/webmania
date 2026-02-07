@@ -285,6 +285,7 @@ function updateTouchVisibility() {
 
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
+let physicsMaterials = {}; // Contenitore per i materiali fisici globali
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
 let lastMenuNavTime = 0; // Debounce per navigazione menu
@@ -391,18 +392,41 @@ function init() {
         world = new CANNON.World();
         world.gravity.set(0, CONFIG.gravity, 0);
         world.broadphase = new CANNON.SAPBroadphase(world);
-        const groundMat = new CANNON.Material('ground');
-        const turboMat = new CANNON.Material('turbo');
-        const wheelMat = new CANNON.Material('wheel');
-        const wheelGroundContact = new CANNON.ContactMaterial(wheelMat, groundMat, { friction: 0.3, restitution: 0, contactEquationStiffness: 1000 });
-        const wheelTurboContact = new CANNON.ContactMaterial(wheelMat, turboMat, { friction: 0.3, restitution: 0, contactEquationStiffness: 1000 });
+
+        // Inizializza materiali globali
+        physicsMaterials.ground = new CANNON.Material('ground');
+        physicsMaterials.wheel = new CANNON.Material('wheel');
+        physicsMaterials.chassis = new CANNON.Material('chassis');
+        physicsMaterials.turbo = new CANNON.Material('turbo');
+
+        const wheelGroundContact = new CANNON.ContactMaterial(physicsMaterials.wheel, physicsMaterials.ground, { 
+            friction: 0.4, 
+            restitution: 0.0, 
+            contactEquationStiffness: 1e8, 
+            contactEquationRelaxation: 3,
+            frictionEquationStiffness: 1e8,
+        });   
+        const wheelTurboContact = new CANNON.ContactMaterial(physicsMaterials.wheel, physicsMaterials.turbo, { 
+            friction: 0.4, 
+            restitution: 0, 
+            contactEquationStiffness: 1e8,
+            contactEquationRelaxation: 3
+        });     
+        
+        const chassisGroundContact = new CANNON.ContactMaterial(physicsMaterials.chassis, physicsMaterials.ground, {
+            friction: 0.02,      
+            restitution: 0,
+            contactEquationStiffness: 1e8,
+            contactEquationRelaxation: 3
+        });
+
         world.addContactMaterial(wheelGroundContact);
+        world.addContactMaterial(chassisGroundContact);
         world.addContactMaterial(wheelTurboContact);
 
         // 3. Setup Gioco
-        initAudioSystem();
         setupInputs();
-        createCar(wheelMat);
+        createCar();
 
         // Versione UI
         document.getElementById('version-display').innerText = "v" + GAME_VERSION;
@@ -420,6 +444,7 @@ function init() {
         // Inizializza loop
         lastFrameTime = performance.now();
         loadSettings();
+        initAudioSystem();
         animate();
         // Rimuovi vecchio listener se presente
         // document.getElementById('gen-btn')... RIMOSSO
@@ -541,7 +566,7 @@ const BLOCK_BUILDERS = {
     },
 
     // --- RAMPA CURVA (S-CURVE) ---
-    ramp: (container, body, params) => {
+        ramp: (container, body, params) => {
         const len = params.length || TRACK_CFG.blockSize;
         const totalH = params.height || TRACK_CFG.blockSize;
         const width = params.width || TRACK_CFG.blockSize;
@@ -663,8 +688,8 @@ const BLOCK_BUILDERS = {
 };
 
 // --- HELPER FISICA AVANZATA ---
-
-// CURVE PERFETTE -> Calcola i vertici di un settore di anello (Road o Wall)
+    
+// Helper CURVE
 function getSectorVertices(r, width, height, angle, isLeft) {
     // Calcola i vertici esatti per un settore curvo
     const rInner = r - width / 2;
@@ -714,7 +739,6 @@ function getSectorVertices(r, width, height, angle, isLeft) {
         new CANNON.Vec3(vFrontInner.x, yTop, vFrontInner.z) // 7
     ];
 }
-
 function createSectorPhysics(r, width, height, angle, isLeft) {
     const verts = getSectorVertices(r, width, height, angle, isLeft);
     const faces = [
@@ -727,7 +751,6 @@ function createSectorPhysics(r, width, height, angle, isLeft) {
     ];
     return new CANNON.ConvexPolyhedron({ vertices: verts, faces });
 }
-
 function createSectorMesh(r, width, height, angle, isLeft, color) {
     const verts = getSectorVertices(r, width, height, angle, isLeft);
     const geo = new THREE.BufferGeometry();
@@ -789,7 +812,7 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
     scene.add(container);
     trackMeshes.push(container);
 
-    const body = new CANNON.Body({ mass: 0 });
+    const body = new CANNON.Body({ mass: 0, material: physicsMaterials.ground });
     body.position.copy(container.position);
     body.quaternion.copy(container.quaternion);
 
@@ -824,9 +847,7 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
     trackBodies.push(body);
 }
 
-
 // --- FUNZIONI DI GENERAZIONE PISTA ---
-
 // Helper per collisioni tra segmenti pista
 const occupiedPoints = []; // Lista di {x, z, r}
 function checkTrackCollision(x, y, z, radiusCheck) {
@@ -844,7 +865,6 @@ function checkTrackCollision(x, y, z, radiusCheck) {
     }
     return false;
 }
-
 //funzione principale di generazione pista
 function generateTrack(matPhysics, matTurbo, seed) {
     // Setup Seed
@@ -974,9 +994,12 @@ function generateTrack(matPhysics, matTurbo, seed) {
 
 // --- CREAZIONE AUTO ---
 let speedoCtx, speedoTexture;
-function createCar(wheelMat) {
+function createCar() {
     // 1. FISICA
-    chassisBody = new CANNON.Body({ mass: CONFIG.mass });
+    chassisBody = new CANNON.Body({ 
+        mass: CONFIG.mass,
+        material: physicsMaterials.chassis
+    });    
     const physLen = 3.8;
     const physWidth = 1.8;
     const physHeight = 0.4;
@@ -1093,16 +1116,16 @@ function createCar(wheelMat) {
     const options = {
         radius: 0.45,
         directionLocal: new CANNON.Vec3(0, -1, 0),
-        suspensionStiffness: 45,
-        suspensionRestLength: 0.55,
+        suspensionStiffness: 55,
+        suspensionRestLength: 0.6,
         frictionSlip: 2.5,
         dampingRelaxation: 2.3,
-        dampingCompression: 4.4,
-        maxSuspensionForce: 100000,
+        dampingCompression: 4.5,
+        maxSuspensionForce: 200000,
         rollInfluence: 0.01,
         axleLocal: new CANNON.Vec3(-1, 0, 0),
         chassisConnectionPointLocal: new CANNON.Vec3(1, 1, 0),
-        maxSuspensionTravel: 0.4,
+        maxSuspensionTravel: 0.5,
         customSlidingRotationalSpeed: -30,
         useCustomSlidingRotationalSpeed: true
     };
@@ -1921,7 +1944,7 @@ window.uiStartGame = (forceSeed = null) => {
     // Nota: Per coerenza fisica bisognerebbe usare gli stessi materiali di init, ma Cannon li gestisce per ID.
     // L'ideale è salvarli globalmente in init. Per ora va bene ricrearli se le contactMaterial sono nel world.
 
-    generateTrack(groundMat, turboMat, finalSeed);
+    generateTrack(physicsMaterials.ground, physicsMaterials.turbo, finalSeed);
     resetTrack(false); // Posiziona auto e start countdown
     updateTouchVisibility();
 };
