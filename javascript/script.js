@@ -1405,7 +1405,6 @@ function animate() {
                             <div style="color: #ff0000; font-size: 1.5em;">CHECKPOINT MANCANTI!</div>
                             <div style="color: #ffffff; font-size: 1.1em;">Hai preso ${hitCount} checkpoint su ${checkpointCount}</div>
                         `;
-                        uiMsg.style.disp
                         uiMsg.style.display = 'block';
                         setTimeout(() => { if(currentState === GAME_STATE.RACING) uiMsg.style.display='none'; }, 2000);
                     }else{
@@ -1816,7 +1815,10 @@ function handleMenuNavigation() {
 
 window.updateFsPref = (val) => {
     localStorage.setItem('webmania_ask_fs', val ? 'true' : 'false');
-    if(val){document.getElementById('fs-dont-ask') = false;}
+    if(val){ 
+        const fsCheck = document.getElementById('fs-dont-ask');
+        if(fsCheck) fsCheck.checked = false;
+    }
     applySettings();
 };
 window.uiSetFullscreen = (activate) => {
