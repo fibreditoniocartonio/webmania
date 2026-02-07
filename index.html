@@ -149,6 +149,10 @@
                 <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">
                 <span id="val-max-records"></span>
             </div>
+            <div class="setting-row">
+                <label>Chiedi di attivare lo Schermo Intero all'avvio</label>
+                <input type="checkbox" id="opt-ask-fs" onchange="window.updateFsPref(this.checked)">
+            </div>
 
             <h2>AUDIO</h2>
             <div class="setting-row">
@@ -222,6 +226,20 @@
             <button id="btn-respawn-stand" class="menu-btn" onclick="window.uiRespawn('standing')">RESPAWN (STANDING)</button>
             <button class="menu-btn" onclick="window.uiRestartTrack()">RICOMINCIA PISTA</button>
             <button class="menu-btn danger" onclick="window.uiExitToMenu()">TORNA AL MENU</button>
+        </div>
+    </div>
+
+    <!-- Modal Schermo Intero -->
+    <div id="fs-modal" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.9);">
+        <div class="paused-box">
+            <h2>SCHERMO INTERO</h2>
+            <p style="color: white; text-align: center;">Vuoi attivare lo schermo intero per una migliore esperienza?</p>
+            <button class="menu-btn primary" onclick="window.uiSetFullscreen(true)">SÌ, ATTIVA</button>
+            <button class="menu-btn" onclick="window.uiSetFullscreen(false)">NO, GRAZIE</button>
+            <div style="margin-top: 15px;">
+                <input type="checkbox" id="fs-dont-ask">
+                <label style="color: #888; font-size: 14px;">Non chiedermelo più</label>
+            </div>
         </div>
     </div>
 

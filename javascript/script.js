@@ -48,7 +48,7 @@ const DEFAULT_SETTINGS = {
     renderDistance: 150,
     maxRecords: 25,
     maxSkidmarks: 200,
-    sfxVolume: 0.5,
+    sfxVolume: 0.4,
     musicVolume: 0.4,
     touchEnabled: false,
     gamepadEnabled: true,
@@ -82,13 +82,13 @@ const DEFAULT_SETTINGS = {
     },
 
     touchLayout: {
-        "btn-t-left" : {left: '2.5%', top: 'auto', right: 'auto', bottom: '30%', scale: 1.6}, 
-        "btn-t-right" : {left: '18%', top: 'auto', right: 'auto', bottom: '30%', scale: 1.6}, 
-        "btn-t-accel" : {left: 'auto', top: 'auto', right: '25%', bottom: '50%', scale: 1.5},
-        "btn-t-brake" : {left: 'auto', top: 'auto', right: '13%', bottom: '17%', scale: 1.2}, 
-        "btn-t-handbrake" : {left: 'auto', top: 'auto', right: '10%', bottom: '65%', scale: 1}, 
-        "btn-t-pause" : {left: '8%', top: '2.00%', right: 'auto', bottom: 'auto', scale: 1}, 
-        "btn-t-toggle" : {left: '2%', top: '2.00%', right: 'auto', bottom: 'auto', scale: 1}
+        "btn-t-left" : {scale: 2, left: '8vh', right: 'auto', bottom: '8vh', top: 'auto'},
+        "btn-t-right" : {scale: 2, left: '39vh', right: 'auto', bottom: '8vh', top: 'auto'},
+        "btn-t-accel" : {scale: 1.9, right: '25.5vh', left: 'auto', bottom: '20vh', top: 'auto'},
+        "btn-t-brake" : {scale: 1.5, right: '4.5vh', left: 'auto', bottom: '5vh', top: 'auto'},
+        "btn-t-handbrake" : {scale: 1.3, right: '3vh', left: 'auto', top: '37vh', bottom: 'auto'},
+        "btn-t-pause" : {scale: 1.3, left: '1.5vh', right: 'auto', top: '1.5vh', bottom: 'auto'},
+        "btn-t-toggle" : {scale: 1.3, right: '1.5vh', left: 'auto', top: '1.5vh', bottom: 'auto'}    
     }
 };
 
@@ -134,6 +134,9 @@ function loadSettings() {
             gameSettings.touchEnabled = true;
         }
     }
+    const askFs = localStorage.getItem('webmania_ask_fs') !== 'false';
+    const chkFs = document.getElementById('opt-ask-fs');
+    if(chkFs) chkFs.checked = askFs;
     applySettings();
     applyCarColors();
 }
@@ -179,6 +182,17 @@ function applySettings() {
     if(elRecords) elRecords.innerText = gameSettings.maxRecords;
     document.getElementById('opt-max-records').value = gameSettings.maxRecords;
 
+    const chkGamepad = document.getElementById('chk-gamepad');
+    if(chkGamepad) chkGamepad.checked = (gameSettings.gamepadEnabled !== undefined ? gameSettings.gamepadEnabled : true);
+    const chkTouch = document.getElementById('chk-touch');
+    if(chkTouch) chkTouch.checked = !!gameSettings.touchEnabled;
+
+    const chkFs = document.getElementById('opt-ask-fs');
+    if(chkFs) {
+        const askFs = localStorage.getItem('webmania_ask_fs') !== 'false';
+        chkFs.checked = askFs;
+    }
+    
     // Aggiorna UI Volume
     const elVolMus = document.getElementById('val-vol-music');
     if(elVolMus) elVolMus.innerText = Math.round(gameSettings.musicVolume*100) + "%";
@@ -1601,6 +1615,11 @@ document.getElementById('btn-t-right').addEventListener('touchstart', (e)=>{e.pr
 document.getElementById('btn-t-right').addEventListener('touchend', (e)=>{e.preventDefault(); touchRight=false;});
 // Logica Touch Centralizzata
 function handleTouchInput(action, active) {
+    const btn = document.querySelector(`.touch-btn[data-action="${action}"]`);
+    if (btn) {
+        if (active) btn.classList.add('is-pressed');
+        else btn.classList.remove('is-pressed');
+    }
     if(action === 'left') inputState.steerL = active ? 1 : 0;
     if(action === 'right') inputState.steerR = active ? 1 : 0;
     if(action === 'accel') inputState.accel = active ? 1 : 0;
@@ -1776,11 +1795,40 @@ function handleMenuNavigation() {
     }
 }
 
+window.updateFsPref = (val) => {
+    localStorage.setItem('webmania_ask_fs', val ? 'true' : 'false');
+    if(val){document.getElementById('fs-dont-ask') = false;}
+    applySettings();
+};
+window.uiSetFullscreen = (activate) => {
+    const dontAskAgain = document.getElementById('fs-dont-ask').checked;
+    if (dontAskAgain) {
+        localStorage.setItem('webmania_ask_fs', 'false');
+        document.getElementById('opt-ask-fs').checked = false;
+    }
 
-window.uiOpenPlay = () => {
-    // Genera seed random precompilato
-    document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
+    if (activate) {
+        const docElm = document.documentElement;
+        if (docElm.requestFullscreen) docElm.requestFullscreen();
+        else if (docElm.webkitRequestFullscreen) docElm.webkitRequestFullscreen();
+        else if (docElm.msRequestFullscreen) docElm.msRequestFullscreen();
+    }
+    
+    document.getElementById('fs-modal').style.display = 'none';
+    // Proseguiamo con l'apertura della schermata play
     showScreen('menu-play');
+};
+window.uiOpenPlay = () => {
+    const askFs = localStorage.getItem('webmania_ask_fs') !== 'false';
+    const isAlreadyFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (askFs && !isAlreadyFs) {
+        document.getElementById('fs-modal').style.display = 'flex';
+        document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
+    } else {
+        // Genera seed random precompilato
+        document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
+        showScreen('menu-play');
+    }
 };
 
 window.uiOpenRecords = () => {
@@ -2060,35 +2108,46 @@ window.uiCloseTouchEditor = () => {
     const ctrl = document.getElementById('touch-controls');
     ctrl.style.zIndex = '';
     const layout = {};
-    // 1. AGGIUNTO 'btn-t-toggle' ALLA LISTA
     const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-handbrake', 'btn-t-toggle'];
-    // Dimensioni finestra per calcolo percentuale
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     buttonIds.forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
             btn.classList.remove('editable-btn', 'selected-btn');
-            // 2. CONVERSIONE PIXEL -> PERCENTUALE
-            // Usiamo getBoundingClientRect per avere la posizione visiva reale in pixel
             const rect = btn.getBoundingClientRect();
-            // Calcoliamo la percentuale (con 2 decimali di precisione)
-            const leftPerc = ((rect.left / winW) * 100).toFixed(2) + "%";
-            const topPerc = ((rect.top / winH) * 100).toFixed(2) + "%";
-
-            // Salviamo sempre come Top/Left in percentuale per uniformità
-            layout[btn.id] = {
-                left: leftPerc,
-                top: topPerc,
-                right: 'auto',   // Resettiamo right/bottom per evitare conflitti
-                bottom: 'auto',
-                scale: parseFloat(btn.dataset.tempScale || 1.0)
-            };
-            // Applichiamo subito lo stile pulito (percentuale) all'elemento
-            btn.style.left = leftPerc;
-            btn.style.top = topPerc;
-            btn.style.right = 'auto';
-            btn.style.bottom = 'auto';
+            const currentScale = parseFloat(btn.dataset.tempScale || 1.0);
+            // 1. Troviamo il centro (immutabile)
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            // 2. Calcoliamo i bordi del box ORIGINALE (scala 1.0)
+            const halfW = (rect.width / currentScale) / 2;
+            const halfH = (rect.height / currentScale) / 2;
+            const unscaledLeft = centerX - halfW;
+            const unscaledRight = centerX + halfW;
+            const unscaledTop = centerY - halfH;
+            const unscaledBottom = centerY + halfH;
+            let params = { scale: currentScale };
+            // 3. Conversione in VH basata sui bordi reali non scalati
+            if (centerX > winW / 2) {
+                params.right = (((winW - unscaledRight) / winH) * 100).toFixed(2) + "vh";
+                params.left = 'auto';
+            } else {
+                params.left = ((unscaledLeft / winH) * 100).toFixed(2) + "vh";
+                params.right = 'auto';
+            }
+            if (centerY > winH / 2) {
+                params.bottom = (((winH - unscaledBottom) / winH) * 100).toFixed(2) + "vh";
+                params.top = 'auto';
+            } else {
+                params.top = ((unscaledTop / winH) * 100).toFixed(2) + "vh";
+                params.bottom = 'auto';
+            }
+            layout[id] = params;
+            btn.style.left = params.left;
+            btn.style.right = params.right;
+            btn.style.top = params.top;
+            btn.style.bottom = params.bottom;
         }
     });
     gameSettings.touchLayout = layout;
@@ -2097,7 +2156,6 @@ window.uiCloseTouchEditor = () => {
 };
 window.resetTouchDefault = () => {
     gameSettings.touchLayout = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.touchLayout));
-    // Pulisci stili inline
     document.querySelectorAll('.touch-btn').forEach(btn => btn.style = "");
     saveSettings();
 }
@@ -2118,34 +2176,26 @@ function selectBtn(btn) {
 }
 function dragStart(e) {
     if(currentState !== GAME_STATE.MENU && document.getElementById('touch-editor-overlay').style.display !== 'flex') return;
-
-    // Preveniamo default browser (scrolling, selezione testo)
     e.preventDefault();
     if(e.type === 'touchstart') e.stopPropagation();
-
-    // Identifica il bottone (anche se clicco sull'icona interna)
     const target = e.target.closest('.touch-btn');
     if(!target) return;
-
     draggedEl = target;
-    selectBtn(draggedEl); // Seleziona per lo slider
-
-    // Coordinate iniziali puntatore
+    selectBtn(draggedEl);
     startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
     startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-
-    // Posizione iniziale elemento (offset calcolato dal bounding rect è più sicuro)
     const rect = draggedEl.getBoundingClientRect();
-    // Vogliamo settare top/left assoluti basati sulla viewport per il drag
-    // Reset right/bottom per evitare conflitti CSS durante il drag
+    const currentScale = parseFloat(draggedEl.dataset.tempScale || 1.0);
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const unscaledWidth = rect.width / currentScale;
+    const unscaledHeight = rect.height / currentScale;
+    startLeft = centerX - unscaledWidth / 2;
+    startTop = centerY - unscaledHeight / 2;
     draggedEl.style.right = 'auto';
     draggedEl.style.bottom = 'auto';
-    draggedEl.style.left = rect.left + 'px';
-    draggedEl.style.top = rect.top + 'px';
-
-    startLeft = rect.left;
-    startTop = rect.top;
-
+    draggedEl.style.left = startLeft + 'px';
+    draggedEl.style.top = startTop + 'px';
     window.addEventListener('mousemove', dragMove);
     window.addEventListener('touchmove', dragMove, {passive: false});
     window.addEventListener('mouseup', dragEnd);
@@ -2154,13 +2204,10 @@ function dragStart(e) {
 function dragMove(e) {
     if(!draggedEl) return;
     e.preventDefault();
-
     const clientX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
     const clientY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
-
     const deltaX = clientX - startX;
     const deltaY = clientY - startY;
-
     draggedEl.style.left = (startLeft + deltaX) + 'px';
     draggedEl.style.top = (startTop + deltaY) + 'px';
 }
