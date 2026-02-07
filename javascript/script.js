@@ -30,6 +30,7 @@ const GAME_STATE = {
 //records su localStorage
 const STORAGE_KEY_RECORDS = "webmania_records";
 const STORAGE_KEY_SETTINGS = "webmania_settings";
+
 const ACTIONS = {
     ACCEL: 'accel',
     BRAKE: 'brake',
@@ -41,6 +42,15 @@ const ACTIONS = {
     RESTART: 'restart',
     PAUSE: 'pause'
 };
+const GAMEPAD_BUTTON_NAMES = {
+    0: "A / Croce", 1: "B / Cerchio", 2: "X / Quadrato", 3: "Y / Triangolo",
+    4: "L1 / LB", 5: "R1 / RB", 6: "L2 / LT", 7: "R2 / RT",
+    8: "Select / View", 9: "Start / Menu", 10: "L3", 11: "R3",
+    12: "D-Pad Su", 13: "D-Pad Giù", 14: "D-Pad Sinistra", 15: "D-Pad Destra"
+};
+function getGpBtnName(idx) {
+    return GAMEPAD_BUTTON_NAMES[idx] || `Button ${idx}`;
+}
 
 const DEFAULT_SETTINGS = {
     renderHeight: 468,
@@ -1597,6 +1607,14 @@ function setupInputs() {
         btn.addEventListener('mouseleave', handlePointerEnd); // Ferma l'azione se il mouse esce dal pulsante
         btn.addEventListener('touchstart', handlePointerStart, { passive: false });
         btn.addEventListener('touchend', handlePointerEnd, { passive: false });
+        const menuBtns = document.querySelectorAll('.menu-btn');
+        menuBtns.forEach(btn => {
+            btn.addEventListener('touchend', (e) => {
+                // Impedisce che l'evento venga gestito due volte (touch + click simulato)
+                if (e.cancelable) e.preventDefault();
+                btn.click();
+            }, { passive: false });
+        });
     });
 }
 function updateActionState(action, val) {
@@ -1755,10 +1773,11 @@ function handleMenuNavigation() {
     if (dir !== 0) {
         // Trova il contenitore visibile (Menu principale o Modale Pausa)
         let visibleContainer = null;
-        if (document.getElementById('pause-modal').style.display !== 'none') {
+        if (document.getElementById('fs-modal').style.display !== 'none') {
+            visibleContainer = document.querySelector('#fs-modal .paused-box');
+        } else if (document.getElementById('pause-modal').style.display !== 'none') {
             visibleContainer = document.querySelector('#pause-modal .paused-box');
         } else if (document.getElementById('main-menu').style.display !== 'none') {
-            // Nel main menu, trova quale "schermata" è attiva (es. home, options, etc.)
             const screens = document.querySelectorAll('.menu-screen');
             screens.forEach(s => {
                 if (s.style.display !== 'none') visibleContainer = s;
@@ -1817,6 +1836,10 @@ window.uiSetFullscreen = (activate) => {
     document.getElementById('fs-modal').style.display = 'none';
     // Proseguiamo con l'apertura della schermata play
     showScreen('menu-play');
+    setTimeout(() => {
+        const startBtn = document.querySelector('#menu-play .menu-btn.primary');
+        if(startBtn) startBtn.focus();
+    }, 50);
 };
 window.uiOpenPlay = () => {
     const askFs = localStorage.getItem('webmania_ask_fs') !== 'false';
@@ -1824,10 +1847,18 @@ window.uiOpenPlay = () => {
     if (askFs && !isAlreadyFs) {
         document.getElementById('fs-modal').style.display = 'flex';
         document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
+        setTimeout(() => {
+            const firstBtn = document.querySelector('#fs-modal .menu-btn.primary');
+            if(firstBtn) firstBtn.focus();
+        }, 50);
     } else {
         // Genera seed random precompilato
         document.getElementById('seed-input').value = Math.random().toString(36).substring(7).toUpperCase();
         showScreen('menu-play');
+        setTimeout(() => {
+            const startBtn = document.querySelector('#menu-play .menu-btn.primary');
+            if(startBtn) startBtn.focus();
+        }, 50);        
     }
 };
 
@@ -2040,10 +2071,12 @@ function startBinding(action, index) {
     bindIndex = index;
     document.getElementById('binding-overlay').style.display = 'flex';
 }
-
 window.cancelBinding = () => {
     document.getElementById('binding-overlay').style.display = 'none';
+    document.getElementById('binding-msg').innerText = "PREMI UN TASTO...";
     isBindingKey = false;
+    isBindingGamepad = false;
+    window.gpBindWaitRelease = false;
 }
 
 window.addEventListener('keydown', (e) => {
@@ -2219,19 +2252,99 @@ function dragEnd() {
     window.removeEventListener('touchend', dragEnd);
 }
 
-// Gamepad UI Helper
+// Gamepad Settings
 function renderGamepadStatus() {
     const el = document.getElementById('gamepad-status');
     const gp = navigator.getGamepads()[0];
+    const list = document.getElementById('gamepad-binds-list');
     if(gp) {
         el.innerText = `Connesso: ${gp.id}`;
         el.style.color = '#00ff00';
+        if(list.innerHTML === '') renderGamepadBinds();
     } else {
         el.innerText = "Premi un tasto sul controller...";
         el.style.color = '#ffff00';
+        list.innerHTML = ''; // Pulisci la lista se disconnesso
         requestAnimationFrame(renderGamepadStatus);
     }
 }
+window.renderGamepadBinds = () => {
+    const list = document.getElementById('gamepad-binds-list');
+    list.innerHTML = '';
+    const friendlyNames = {
+        [ACTIONS.ACCEL]: 'Acceleratore',
+        [ACTIONS.BRAKE]: 'Freno / Retro',
+        [ACTIONS.HANDBRAKE]: 'Freno a Mano',
+        [ACTIONS.RESPAWN_FLY]: 'Respawn (Flying)',
+        [ACTIONS.RESPAWN_STAND]: 'Respawn (Standing)',
+        [ACTIONS.RESTART]: 'Ricomincia',
+        [ACTIONS.PAUSE]: 'Pausa'
+    };
+    // Filtra solo le azioni che hanno un binding per gamepad
+    for(const [action, currentIdx] of Object.entries(gameSettings.gamepadBinds)) {
+        if(!friendlyNames[action]) continue; // Salta azioni non mappabili se ce ne sono
+        const row = document.createElement('div');
+        row.className = 'bind-row';
+        const label = document.createElement('span');
+        label.className = 'bind-label';
+        label.innerText = friendlyNames[action];
+
+        const btn = document.createElement('button');
+        btn.className = 'bind-btn';
+        btn.innerText = getGpBtnName(currentIdx);
+        btn.onclick = () => startGamepadBinding(action);
+
+        row.appendChild(label);
+        row.appendChild(btn);
+        list.appendChild(row);
+    }
+};
+let isBindingGamepad = false;
+let gpBindAction = null;
+function startGamepadBinding(action) {
+    isBindingGamepad = true;
+    gpBindAction = action;
+    window.gpBindWaitRelease = true;
+    const overlay = document.getElementById('binding-overlay');
+    const msg = document.getElementById('binding-msg');
+    msg.innerText = "PREMI IL NUOVO TASTO SUL CONTROLLER...";
+    overlay.style.display = 'flex';
+    checkForGamepadInput();
+}
+function checkForGamepadInput() {
+    if(!isBindingGamepad) return;
+    const gp = navigator.getGamepads()[0];
+    if(gp) {
+        const pressedIndex = gp.buttons.findIndex(b => b.pressed);
+        if (window.gpBindWaitRelease) {
+            if (pressedIndex === -1) {
+                window.gpBindWaitRelease = false;
+            }
+        } 
+        else {
+            if (pressedIndex !== -1) {
+                applyGamepadBind(pressedIndex);
+                return;
+            }
+        }
+    }
+    requestAnimationFrame(checkForGamepadInput);
+}
+function applyGamepadBind(newIndex) {
+    gameSettings.gamepadBinds[gpBindAction] = newIndex;
+    saveSettings();
+    isBindingGamepad = false;
+    window.gpBindWaitRelease = false;
+    document.getElementById('binding-overlay').style.display = 'none';
+    document.getElementById('binding-msg').innerText = "PREMI UN TASTO..."; // Reset msg
+    renderGamepadBinds();
+}
+window.resetGamepadDefaults = () => {
+    gameSettings.gamepadBinds = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.gamepadBinds));
+    saveSettings();
+    renderGamepadBinds();
+};
+
 
 //menu personalizza macchina
 window.initPreview = () => {
@@ -2258,24 +2371,12 @@ window.initPreview = () => {
     const pDir = new THREE.DirectionalLight(0xffffff, 1);
     pDir.position.set(5, 5, 5);
     previewScene.add(pAmb, pDir);
-
-    // Controlli Mouse per la rotazione
-    let isDragging = false;
-    let prevX = 0;
-    container.addEventListener('mousedown', (e) => { isDragging = true; prevX = e.clientX; });
-    window.addEventListener('mouseup', () => { isDragging = false; });
-    container.addEventListener('mousemove', (e) => {
-        if(isDragging) {
-            const delta = e.clientX - prevX;
-            previewAngle += delta * 0.015; // Aumentata sensibilità
-            prevX = e.clientX;
-        }
-    });
 };
 function animatePreview() {
     if(!isPreviewActive) return;
     requestAnimationFrame(animatePreview);
     if(carPreviewGroup) {
+        previewAngle += 0.01; 
         carPreviewGroup.rotation.y = previewAngle;
     }
     previewRenderer.render(previewScene, previewCamera);
@@ -2318,7 +2419,7 @@ window.uiOpenCustomize = () => {
         // 3. Aggiungi il gruppo completo alla scena della preview
         previewScene.add(carPreviewGroup);
         // Centra il gruppo nella vista
-        carPreviewGroup.position.set(0, -0.2, 0); // Leggero offset Y per centrare verticalmente
+        carPreviewGroup.position.set(0, -1, 0); // Leggero offset Y per centrare verticalmente
         previewAngle = 0;
         // Avvia il loop di rendering della preview
         isPreviewActive = true;

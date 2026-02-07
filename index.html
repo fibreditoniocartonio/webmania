@@ -86,7 +86,6 @@
         <div id="opt-customize" class="menu-screen" style="display:none; flex-direction: row; max-width: 900px; height: 500px; gap: 20px;">
             <!-- Colonna Controlli (Sinistra) -->
             <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center;">
-                <h2>GARAGE</h2>
                 <div class="setting-row">
                     <label>Carrozzeria</label>
                     <input type="color" id="col-body" oninput="window.updateCarColor('body', this.value)">
@@ -115,9 +114,7 @@
             </div>
             <!-- Colonna Preview (Destra) -->
             <div id="car-preview-container" style="flex: 1; background: #000; border: 2px solid #555; position: relative; height:100%;">
-                <div style="position: absolute; bottom: 0px; width: 100%; text-align: center; color: #fff; pointer-events: none; background: #000; ">
-                    TRASCINA PER RUOTARE
-                </div>
+                <div style="position: absolute; bottom: 0px; width: 100%; text-align: center; color: #fff; pointer-events: none; background: #000; ">PREVIEW AUTO</div>
             </div>
         </div>
 
@@ -195,6 +192,7 @@
             </div>
             <div id="gamepad-status" style="color: yellow; font-size: 14px; margin-bottom: 10px;">Nessun controller rilevato</div>
             <div id="gamepad-binds-list"></div>
+            <button class="menu-btn" onclick="window.resetGamepadDefaults()">RIPRISTINA DEFAULT</button>
             <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
         </div>
 
