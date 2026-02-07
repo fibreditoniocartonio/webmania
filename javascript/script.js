@@ -82,13 +82,13 @@ const DEFAULT_SETTINGS = {
     },
 
     touchLayout: {
-        "btn-t-left": {left: "2%", bottom: "5%", top: "auto", right: "auto", scale: 1.5},
-        "btn-t-right": {left: "15%", bottom: "5%", top: "auto", right: "auto", scale: 1.5},
-        "btn-t-accel": {right: "5%", bottom: "20%", top: "auto", left: "auto", scale: 1.6},
-        "btn-t-brake": {right: "5%", bottom: "5%", top: "auto", left: "auto", scale: 1.4},
-        "btn-t-handbrake": {right: "20%", bottom: "10%", top: "auto", left: "auto", scale: 1.7},
-        "btn-t-pause": {left: "2%", top: "2%", bottom: "auto", right: "auto", scale: 1.0},
-        "btn-t-toggle": {right: "2%", top: "2%", bottom: "auto", left: "auto", scale: 1.0}
+        "btn-t-left" : {left: '2.5%', top: 'auto', right: 'auto', bottom: '30%', scale: 1.6}, 
+        "btn-t-right" : {left: '18%', top: 'auto', right: 'auto', bottom: '30%', scale: 1.6}, 
+        "btn-t-accel" : {left: 'auto', top: 'auto', right: '25%', bottom: '50%', scale: 1.5},
+        "btn-t-brake" : {left: 'auto', top: 'auto', right: '13%', bottom: '17%', scale: 1.2}, 
+        "btn-t-handbrake" : {left: 'auto', top: 'auto', right: '10%', bottom: '65%', scale: 1}, 
+        "btn-t-pause" : {left: '8%', top: '2.00%', right: 'auto', bottom: 'auto', scale: 1}, 
+        "btn-t-toggle" : {left: '2%', top: '2.00%', right: 'auto', bottom: 'auto', scale: 1}
     }
 };
 
@@ -263,6 +263,7 @@ function updateTouchVisibility() {
 let scene, camera, renderer, world;
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
+let lastMenuNavTime = 0; // Debounce per navigazione menu
 
 let matBody, matSpoiler, matWheelVis, matRim;
 let previewScene, previewCamera, previewRenderer, carPreviewGroup;
@@ -1186,6 +1187,7 @@ function animate() {
 
     // Se siamo in pausa o nel menu, aggiorniamo lastFrameTime ma non la fisica
     if (currentState === GAME_STATE.PAUSED || currentState === GAME_STATE.MENU) {
+        handleMenuNavigation();
         lastFrameTime = now;
         renderer.render(scene, camera); // Renderizza statico (freeze)
         return;
@@ -1717,6 +1719,63 @@ function showScreen(id) {
     document.querySelectorAll('.menu-screen').forEach(el => el.style.display = 'none');
     document.getElementById(id).style.display = 'flex';
 }
+function handleMenuNavigation() {
+    const gp = navigator.getGamepads()[0];
+    if (!gp) return;
+    const now = performance.now();
+    if (now - lastMenuNavTime < 150) return; // Limita la velocità (debounce)
+    // Determina se c'è input verticale (Stick o D-Pad)
+    const axisY = gp.axes[1];
+    const dpadUp = gp.buttons[12] && gp.buttons[12].pressed;
+    const dpadDown = gp.buttons[13] && gp.buttons[13].pressed;
+    // Tasto Conferma (A su Xbox / X su PS) - Generalmente bottone 0
+    const btnConfirm = gp.buttons[0] && gp.buttons[0].pressed;
+    let dir = 0;
+    if (axisY > 0.5 || dpadDown) dir = 1;
+    if (axisY < -0.5 || dpadUp) dir = -1;
+    if (dir !== 0) {
+        // Trova il contenitore visibile (Menu principale o Modale Pausa)
+        let visibleContainer = null;
+        if (document.getElementById('pause-modal').style.display !== 'none') {
+            visibleContainer = document.querySelector('#pause-modal .paused-box');
+        } else if (document.getElementById('main-menu').style.display !== 'none') {
+            // Nel main menu, trova quale "schermata" è attiva (es. home, options, etc.)
+            const screens = document.querySelectorAll('.menu-screen');
+            screens.forEach(s => {
+                if (s.style.display !== 'none') visibleContainer = s;
+            });
+        }
+        if (visibleContainer) {
+            // Seleziona solo i bottoni visibili e abilitati
+            const buttons = Array.from(visibleContainer.querySelectorAll('button, input[type="text"], input[type="range"], input[type="checkbox"]'));
+            // Trova indice del focus attuale
+            let currentIndex = buttons.indexOf(document.activeElement);
+            if (currentIndex === -1) {
+                // Se nessuno è selezionato, seleziona il primo
+                if (buttons.length > 0) buttons[0].focus();
+            } else {
+                // Calcola nuovo indice
+                let newIndex = currentIndex + dir;
+                // Clamp (non uscire dalla lista)
+                if (newIndex < 0) newIndex = buttons.length - 1; // Loop
+                if (newIndex >= buttons.length) newIndex = 0;    // Loop
+                buttons[newIndex].focus();
+                // Se è un input range, non vogliamo scorrere via subito se l'utente vuole cambiarlo,
+                // ma per ora gestiamo solo la navigazione verticale focus.
+            }
+            playSfx('checkpoint', 2.0); // Feedback audio
+            lastMenuNavTime = now;
+        }
+    }
+    // Gestione Click (Conferma)
+    if (btnConfirm) {
+        if (document.activeElement && document.activeElement.click) {
+            document.activeElement.click();
+            lastMenuNavTime = now + 200; // Pausa extra dopo un click
+        }
+    }
+}
+
 
 window.uiOpenPlay = () => {
     // Genera seed random precompilato
@@ -2033,6 +2092,7 @@ window.uiCloseTouchEditor = () => {
         }
     });
     gameSettings.touchLayout = layout;
+    console.log("Configurazione Touch salvata:\n", layout);
     saveSettings();
 };
 window.resetTouchDefault = () => {
