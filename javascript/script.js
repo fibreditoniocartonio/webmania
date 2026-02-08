@@ -40,7 +40,10 @@ const ACTIONS = {
     RESPAWN_FLY: 'resp_fly',
     RESPAWN_STAND: 'resp_stand',
     RESTART: 'restart',
-    PAUSE: 'pause'
+    PAUSE: 'pause',
+    MENU_CONFIRM: 'menu_confirm',
+    MENU_UP: 'menu_up',
+    MENU_DOWN: 'menu_down'  
 };
 const GAMEPAD_BUTTON_NAMES = {
     0: "A / Croce", 1: "B / Cerchio", 2: "X / Quadrato", 3: "Y / Triangolo",
@@ -88,7 +91,10 @@ const DEFAULT_SETTINGS = {
         [ACTIONS.RESPAWN_FLY]: 3, // Triangolo / Y
         [ACTIONS.RESPAWN_STAND]: 1, // Cerchio / B
         [ACTIONS.RESTART]: 8, // Select / Back
-        [ACTIONS.PAUSE]: 9  // Start
+        [ACTIONS.PAUSE]: 9,  // Start
+        [ACTIONS.MENU_CONFIRM]: 0, // A / X (Nei menu)
+        [ACTIONS.MENU_UP]: 12,     // D-Pad Su
+        [ACTIONS.MENU_DOWN]: 13    // D-Pad Giù
     },
 
     touchLayout: {
@@ -595,7 +601,6 @@ const BLOCK_BUILDERS = {
 
             // Lunghezza ipotenusa del segmento
             const hypLen = Math.sqrt(segLen**2 + dy**2);
-
             const pos = new CANNON.Vec3(0, segY, segZ);
 
             // Pavimento
@@ -1099,7 +1104,7 @@ function createCar() {
     speedoTexture.magFilter = THREE.NearestFilter;
     const speedoPlane = new THREE.Mesh(
         new THREE.PlaneGeometry(0.6, 0.3),
-                                       new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
+        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
     );
     speedoPlane.position.set(0, 0.5 + visualY, 1.21);
     carGroup.add(speedoPlane);
@@ -1630,13 +1635,32 @@ function setupInputs() {
         btn.addEventListener('touchstart', handlePointerStart, { passive: false });
         btn.addEventListener('touchend', handlePointerEnd, { passive: false });
         const menuBtns = document.querySelectorAll('.menu-btn');
-        menuBtns.forEach(btn => {
-            btn.addEventListener('touchend', (e) => {
-                // Impedisce che l'evento venga gestito due volte (touch + click simulato)
-                if (e.cancelable) e.preventDefault();
-                btn.click();
-            }, { passive: false });
-        });
+    menuBtns.forEach(btn => {
+        let touchStartY = 0;
+        let touchStartX = 0;
+
+        btn.addEventListener('touchstart', (e) => {
+            // Salviamo le coordinate iniziali
+            touchStartY = e.touches[0].clientY;
+            touchStartX = e.touches[0].clientX;
+        }, { passive: true });
+
+        btn.addEventListener('touchend', (e) => {
+            if (e.cancelable) e.preventDefault(); // Previene eventi mouse fantasma
+            // Calcoliamo quanto si è spostato il dito
+            const endY = e.changedTouches[0].clientY;
+            const endX = e.changedTouches[0].clientX;
+            const diffX = Math.abs(endX - touchStartX);
+            const diffY = Math.abs(endY - touchStartY);
+            // Se lo spostamento è minimo (meno di 10px), lo consideriamo un click
+            // Altrimenti è uno scroll e non facciamo nulla
+            if (diffX < 10 && diffY < 10) {
+                btn.focus(); // Diamo focus per coerenza col controller
+                btn.click(); // Eseguiamo il click
+            }
+        }, { passive: false });
+    });
+
     });
 }
 function updateActionState(action, val) {
@@ -1783,12 +1807,17 @@ function handleMenuNavigation() {
     if (!gp) return;
     const now = performance.now();
     if (now - lastMenuNavTime < 150) return; // Limita la velocità (debounce)
-    // Determina se c'è input verticale (Stick o D-Pad)
+    // Recupera i tasti configurati
+    const idxUp = gameSettings.gamepadBinds[ACTIONS.MENU_UP];
+    const idxDown = gameSettings.gamepadBinds[ACTIONS.MENU_DOWN];
+    const idxConfirm = gameSettings.gamepadBinds[ACTIONS.MENU_CONFIRM];
+    // Determina se c'è input verticale (Stick ANALOGICO rimane hardcoded per comodità + D-Pad CONFIGURABILE)
     const axisY = gp.axes[1];
-    const dpadUp = gp.buttons[12] && gp.buttons[12].pressed;
-    const dpadDown = gp.buttons[13] && gp.buttons[13].pressed;
-    // Tasto Conferma (A su Xbox / X su PS) - Generalmente bottone 0
-    const btnConfirm = gp.buttons[0] && gp.buttons[0].pressed;
+    // Verifica pulsanti configurati
+    const dpadUp = gp.buttons[idxUp] && gp.buttons[idxUp].pressed;
+    const dpadDown = gp.buttons[idxDown] && gp.buttons[idxDown].pressed;
+    // Tasto Conferma configurabile
+    const btnConfirm = gp.buttons[idxConfirm] && gp.buttons[idxConfirm].pressed;
     let dir = 0;
     if (axisY > 0.5 || dpadDown) dir = 1;
     if (axisY < -0.5 || dpadUp) dir = -1;
@@ -2303,7 +2332,10 @@ window.renderGamepadBinds = () => {
         [ACTIONS.RESPAWN_FLY]: 'Respawn (Flying)',
         [ACTIONS.RESPAWN_STAND]: 'Respawn (Standing)',
         [ACTIONS.RESTART]: 'Ricomincia',
-        [ACTIONS.PAUSE]: 'Pausa'
+        [ACTIONS.PAUSE]: 'Pausa',
+        [ACTIONS.MENU_CONFIRM]: 'Menu: Conferma (X/A)',
+        [ACTIONS.MENU_UP]: 'Menu: Su',
+        [ACTIONS.MENU_DOWN]: 'Menu: Giù'        
     };
     // Filtra solo le azioni che hanno un binding per gamepad
     for(const [action, currentIdx] of Object.entries(gameSettings.gamepadBinds)) {
