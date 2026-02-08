@@ -147,6 +147,10 @@
                 <span id="val-max-records"></span>
             </div>
             <div class="setting-row">
+                <label>Mostra Ghost Car dei Replay</label>
+                <input type="checkbox" id="opt-ghost-enabled" onchange="window.updateSetting('ghostEnabled', this.checked)">
+            </div>
+            <div class="setting-row">
                 <label>Chiedi di attivare lo Schermo Intero all'avvio</label>
                 <input type="checkbox" id="opt-ask-fs" onchange="window.updateFsPref(this.checked)">
             </div>
@@ -220,9 +224,12 @@
         <div class="paused-box">
             <h2>PAUSA</h2>
             <button class="menu-btn" onclick="window.uiResume()">RIPRENDI</button>
-            <button id="btn-respawn-fly" class="menu-btn" onclick="window.uiRespawn('flying')">RESPAWN (FLYING)</button>
-            <button id="btn-respawn-stand" class="menu-btn" onclick="window.uiRespawn('standing')">RESPAWN (STANDING)</button>
+            <div id="btn-respawn-div" style="display: none; flex-direction: row; gap: 15px;">
+                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('flying')">RESPAWN (FLYING)</button>
+                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('standing')">RESPAWN (STANDING)</button>
+            </div>
             <button class="menu-btn" onclick="window.uiRestartTrack()">RICOMINCIA PISTA</button>
+            <button id="btn-toggle-ghost" style="display: none;" class="menu-btn" onclick="window.toggleGhostInGame()">REPLAY GHOSTCAR: ON</button>
             <button class="menu-btn danger" onclick="window.uiExitToMenu()">TORNA AL MENU</button>
         </div>
     </div>

@@ -65,6 +65,7 @@ const DEFAULT_SETTINGS = {
     musicVolume: 0.4,
     touchEnabled: false,
     gamepadEnabled: true,
+    ghostEnabled: true,
     carColors: {
         body: '#d92525',
         wheels: '#111111',
@@ -203,6 +204,11 @@ function applySettings() {
     const chkTouch = document.getElementById('chk-touch');
     if(chkTouch) chkTouch.checked = !!gameSettings.touchEnabled;
 
+    const chkGhost = document.getElementById('opt-ghost-enabled');
+    if(chkGhost) chkGhost.checked = !!gameSettings.ghostEnabled;
+    const btnGhost = document.getElementById('btn-toggle-ghost');
+    if(btnGhost) btnGhost.innerText = `REPLAY GHOSTCAR: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+
     const chkFs = document.getElementById('opt-ask-fs');
     if(chkFs) {
         const askFs = localStorage.getItem('webmania_ask_fs') !== 'false';
@@ -295,6 +301,13 @@ let physicsMaterials = {}; // Contenitore per i materiali fisici globali
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
 let lastMenuNavTime = 0; // Debounce per navigazione menu
+
+//ghostcar Replay
+let ghostMesh = null; // La mesh visiva del fantasma
+let ghostDataRecording = []; // Array per registrare la corsa corrente
+let ghostDataPlayback = null; // Array della corsa caricata (Best Time)
+let isReplayMode = false; // Se true, stiamo guardando un replay (non giochiamo)
+let currentGhostIndex = 0; // Indice per ottimizzare il replay
 
 let matBody, matSpoiler, matWheelVis, matRim;
 let previewScene, previewCamera, previewRenderer, carPreviewGroup;
@@ -485,6 +498,7 @@ function startCountdown(count) {
     uiCountdown.style.display = 'block';
     playSfx('countdown1');
     uiCountdown.innerText = count;
+    lastFrameTime = performance.now();
     const interval = setInterval(() => {
         count--;
         if (count > 0) {
@@ -499,6 +513,7 @@ function startCountdown(count) {
             uiCountdown.style.display = 'none';
             uiCountdown.style.color = "#fff";
             currentState = GAME_STATE.RACING;
+            lastFrameTime = performance.now();
         }
     }, 400);
 }
@@ -884,14 +899,27 @@ function generateTrack(matPhysics, matTurbo, seed) {
     bestRunSplits = [];
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
     const existingRecord = history.find(r => r.seed === currentSeed);
+    currentGhostIndex = 0;
     if (existingRecord) {
         bestTime = existingRecord.time;
         uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
         bestRunSplits = existingRecord.splits || [];
+        if (existingRecord.ghostData) {
+            ghostDataPlayback = existingRecord.ghostData;
+            console.log("Ghost caricato: " + ghostDataPlayback.length + " frames");
+        } else {
+            ghostDataPlayback = null;
+        }
     } else {
         bestTime = null;
         uiBestTime.innerText = "Best: --:--.---";
+        ghostDataPlayback = null;
+        if(ghostMesh) {ghostMesh.visible = false;}
     }
+    
+    // Assicurati che la visuale esista
+    if(!ghostMesh) createGhostVisuals();
+
 
     trackMeshes.forEach(m => scene.remove(m));
     trackBodies.forEach(b => world.removeBody(b));
@@ -1253,6 +1281,69 @@ function animate() {
         }
     }
 
+    // --- LOGICA GHOST CAR ---
+    // 1. REGISTRAZIONE (Solo se stiamo gareggiando e non è un replay)
+    if (currentState === GAME_STATE.RACING && !isReplayMode) {
+        // Registra ogni frame o (meglio) usa gameTime per sincronizzare
+        // Salviamo posizione e rotazione con precisione arrotondata per risparmiare spazio
+        ghostDataRecording.push({
+            t: Math.floor(gameTime), 
+            p: [ parseFloat(chassisBody.position.x.toFixed(3)), parseFloat(chassisBody.position.y.toFixed(3)), parseFloat(chassisBody.position.z.toFixed(3)) ],
+            q: [ parseFloat(chassisBody.quaternion.x.toFixed(4)), parseFloat(chassisBody.quaternion.y.toFixed(4)), parseFloat(chassisBody.quaternion.z.toFixed(4)), parseFloat(chassisBody.quaternion.w.toFixed(4)) ]
+        });
+    }
+
+    // 2. RIPRODUZIONE (Sia in gioco che in replay mode)
+    const hasGhostData = ghostDataPlayback && ghostDataPlayback.length > 0;
+    // Gestione Timer Replay (FIX PUNTI 3 e 4)
+    if (isReplayMode && hasGhostData) {
+        const lastFrameTime = ghostDataPlayback[ghostDataPlayback.length - 1].t;
+        // Se il tempo di gioco supera la durata del replay, fermiamo il timer e mostriamo FINISH
+        if (gameTime >= lastFrameTime) {
+            gameTime = lastFrameTime; // Clampa il tempo
+            if (currentState !== GAME_STATE.FINISHED) {
+                currentState = GAME_STATE.FINISHED;
+                uiMsg.innerHTML = `<div style="color: #00ffff; font-size: 1.5em;">REPLAY FINISHED</div>`;
+                uiMsg.style.display = 'block';
+            }
+        }
+    }
+    if (hasGhostData && ghostMesh) {
+        const shouldShow = gameSettings.ghostEnabled && 
+        (currentState === GAME_STATE.RACING || currentState === GAME_STATE.FINISHED || isReplayMode || currentState === GAME_STATE.START);
+        ghostMesh.visible = shouldShow
+        if (shouldShow) {
+            // Cerchiamo il frame successivo che sia <= al gameTime corrente
+            // currentGhostIndex non viene mai resettato qui, solo in resetTrack, quindi è velocissimo
+            while(currentGhostIndex < ghostDataPlayback.length - 1 && ghostDataPlayback[currentGhostIndex + 1].t <= gameTime) {
+                currentGhostIndex++;
+            }
+            const data = ghostDataPlayback[currentGhostIndex];
+            if (data) {
+                ghostMesh.position.set(data.p[0], data.p[1], data.p[2]);
+                ghostMesh.quaternion.set(data.q[0], data.q[1], data.q[2], data.q[3]);
+            }
+        }
+    }
+
+    // 3. GESTIONE CAMERA
+    // Se siamo in Replay, la camera segue SEMPRE il fantasma (se esiste), altrimenti segue il nulla
+    if (isReplayMode) {
+        if (hasGhostData && ghostMesh) {
+            const camOffset = new THREE.Vector3(0, 4.0, 6.5);
+            camOffset.applyMatrix4(ghostMesh.matrixWorld);
+            camera.position.lerp(camOffset, 0.2); 
+            camera.lookAt(ghostMesh.position.x, ghostMesh.position.y + 1.5, ghostMesh.position.z);
+        }
+    } else {
+        // Modalità Gioco Normale
+        const camOffset = new THREE.Vector3(0, 4.0, 6.5);
+        camOffset.applyMatrix4(chassisMesh.matrixWorld);
+        camera.position.lerp(camOffset, 0.2); 
+        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
+    }
+
+    //logica macchina normale
     if (vehicle && chassisMesh) {
         chassisMesh.position.copy(chassisBody.position);
         chassisMesh.quaternion.copy(chassisBody.quaternion);
@@ -1367,11 +1458,6 @@ function animate() {
             vehicle.wheelInfos[i].mesh.position.copy(vehicle.wheelInfos[i].worldTransform.position);
             vehicle.wheelInfos[i].mesh.quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
         }
-
-        const camOffset = new THREE.Vector3(0, 4.0, 6.5);
-        camOffset.applyMatrix4(chassisMesh.matrixWorld);
-        camera.position.lerp(camOffset, 0.2);
-        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
 
         const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
         speedoCtx.clearRect(0, 0, 128, 64);
@@ -1543,35 +1629,61 @@ function resetTrack(generateNew = false) {
         return;
     }
 
-    skidmarkMeshes.forEach(m => scene.remove(m));
-    skidmarkMeshes = [];
+    ghostDataRecording = [];
+    currentGhostIndex = 0;
 
-    // Reset Logico (Delete Key)
-    currentCheckpointData.index = -1;
-    currentCheckpointData.timeStamp = 0;
-    currentRunSplits = []; // Resetta i tempi della corsa attuale
-
-    // Trova lo start
-    const startBody = trackBodies.find(b => b.isStart);
-    if (startBody) {
-        const spawnPosition = startBody.position.clone();
-        const startOffset = new CANNON.Vec3(0, 1.3, -TRACK_CFG.blockSize / 2);
-        spawnPosition.vadd(startOffset, spawnPosition);
+    if (isReplayMode) {
+        currentState = GAME_STATE.START;
+        if(chassisBody) {
+             chassisBody.position.set(0, -100, 0); 
+             chassisBody.velocity.set(0,0,0);
+             chassisBody.angularVelocity.set(0,0,0);
+        }
+        if (ghostMesh && ghostDataPlayback && ghostDataPlayback.length > 0) {
+            const firstFrame = ghostDataPlayback[0];
+            ghostMesh.position.set(firstFrame.p[0], firstFrame.p[1], firstFrame.p[2]);
+            ghostMesh.quaternion.set(firstFrame.q[0], firstFrame.q[1], firstFrame.q[2], firstFrame.q[3]);
+            ghostMesh.visible = true;
+            ghostMesh.updateMatrixWorld(true);
+            const camStartOffset = new THREE.Vector3(0, 4.0, 6.5);
+            camStartOffset.applyMatrix4(ghostMesh.matrixWorld);
+            camera.position.copy(camStartOffset);
+            camera.lookAt(ghostMesh.position.x, ghostMesh.position.y + 1.5, ghostMesh.position.z);
+        }
         
-        currentCheckpointData.position.copy(spawnPosition);
-        currentCheckpointData.quaternion.copy(startBody.quaternion); // La rotazione è corretta
+        gameTime = 0; // Reset tempo
+        startCountdown(3);
     } else {
-        // Fallback di sicurezza se non trova lo start (non dovrebbe mai succedere)
-        console.error("Blocco di partenza non trovato! Spawn di default.");
-        currentCheckpointData.position.set(0, 5, -10);
-        currentCheckpointData.quaternion.set(0,0,0,1);
-    }
-    currentCheckpointData.velocity.set(0,0,0);
-    currentCheckpointData.angularVelocity.set(0,0,0);
+        skidmarkMeshes.forEach(m => scene.remove(m));
+        skidmarkMeshes = [];
 
-    gameTime = 0;
-    uiMsg.style.display = 'none';
-    doRespawn('standing');
+        // Reset Logico (Delete Key)
+        currentCheckpointData.index = -1;
+        currentCheckpointData.timeStamp = 0;
+        currentRunSplits = []; // Resetta i tempi della corsa attuale
+
+        // Trova lo start
+        const startBody = trackBodies.find(b => b.isStart);
+        if (startBody) {
+            const spawnPosition = startBody.position.clone();
+            const startOffset = new CANNON.Vec3(0, 1.3, -TRACK_CFG.blockSize / 2);
+            spawnPosition.vadd(startOffset, spawnPosition);
+            
+            currentCheckpointData.position.copy(spawnPosition);
+            currentCheckpointData.quaternion.copy(startBody.quaternion); // La rotazione è corretta
+        } else {
+            // Fallback di sicurezza se non trova lo start (non dovrebbe mai succedere)
+            console.error("Blocco di partenza non trovato! Spawn di default.");
+            currentCheckpointData.position.set(0, 5, -10);
+            currentCheckpointData.quaternion.set(0,0,0,1);
+        }
+        currentCheckpointData.velocity.set(0,0,0);
+        currentCheckpointData.angularVelocity.set(0,0,0);
+
+        gameTime = 0;
+        uiMsg.style.display = 'none';
+        doRespawn('standing');
+    }
 }
 
 function setupInputs() {
@@ -1768,17 +1880,18 @@ function pollInputs() {
 }
 
 function saveRunToHistory(time) {
+    const ghostDataClone = ghostDataRecording.length > 0 ? JSON.parse(JSON.stringify(ghostDataRecording)) : null;
     const record = {
         seed: currentSeed,
         version: GAME_VERSION,
         date: new Date().toLocaleString(),
         time: time,
         formattedTime: formatTime(time),
+        ghostData: ghostDataClone,
         splits: currentRunSplits
     };
-
+    console.log(ghostDataRecording);
     let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
-
     // Controlla se esiste già questo seed e se abbiamo migliorato
     const existingIndex = history.findIndex(r => r.seed === currentSeed);
     if (existingIndex >= 0) {
@@ -1788,11 +1901,14 @@ function saveRunToHistory(time) {
     } else {
         history.unshift(record); // Aggiungi in testa
     }
-
     // Tieni solo gli ultimi 100
     if (history.length > 100) history = history.slice(0, 100);
-
     localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
+
+    if (bestTime === null || time <= bestTime) {
+        ghostDataPlayback = ghostDataClone; 
+        uiBestTime.innerText = `Best: ${formatTime(time)}`;
+    }
 }
 
 // --- SISTEMA MENU UI ---
@@ -1935,6 +2051,7 @@ window.uiOpenRecords = () => {
             <div class="record-time">${rec.formattedTime}</div>
             <div class="record-actions">
             <button onclick="window.uiStartGame('${rec.seed}')">PLAY</button>
+            ${rec.ghostData ? `<button onclick="window.uiStartReplay('${rec.seed}')" style="background:#00aaaa;">REPLAY</button>` : ''}
             <button onclick="navigator.clipboard.writeText('${window.location.origin}/#${rec.seed}'); alert('Link copiato!')">SHARE</button>
             </div>
             `;
@@ -1943,26 +2060,74 @@ window.uiOpenRecords = () => {
     }
     showScreen('menu-records');
 };
+//ghostcar
+function createGhostVisuals() {
+    if (ghostMesh) scene.remove(ghostMesh);
+    ghostMesh = new THREE.Group();
+    const ghostMat = new THREE.MeshBasicMaterial({ 
+        color: 0xaaaaaa,
+        transparent: true, 
+        opacity: 0.4,
+        wireframe: true
+    });
+    const bodyGeo = new THREE.BoxGeometry(1.8, 0.4, 3.8);
+    const body = new THREE.Mesh(bodyGeo, ghostMat);
+    body.position.y = 0.1; 
+    const wheelGeo = new THREE.CylinderGeometry(0.45, 0.45, 0.6, 16);
+    wheelGeo.rotateZ(Math.PI/2);
+    const wheelY = -0.3; 
+    const pos = [
+        [1.1, wheelY, -1.6], [-1.1, wheelY, -1.6], 
+        [1.1, wheelY, 1.1], [-1.1, wheelY, 1.1]
+    ];
+    pos.forEach(p => {
+        const w = new THREE.Mesh(wheelGeo, ghostMat);
+        w.position.set(...p);
+        ghostMesh.add(w);
+    });
+    ghostMesh.add(body);
+    ghostMesh.visible = false;
+    scene.add(ghostMesh);
+}
+window.uiStartReplay = (seed) => {
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    const rec = history.find(r => r.seed === seed);
+    if(!rec || !rec.ghostData) { alert("No Replay"); return; }
+    isReplayMode = true;
+    window.keepReplayFlag = true;
+    window.uiStartGame(seed);
+};
+window.toggleGhostInGame = () => {
+    if (!ghostDataPlayback) {
+        alert("Nessun fantasma disponibile per questa pista.");
+        return;
+    }
+    gameSettings.ghostEnabled = !gameSettings.ghostEnabled;
+    const btn = document.getElementById('btn-toggle-ghost');
+    if(btn) btn.innerText = `GHOST: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+    const chk = document.getElementById('opt-ghost-enabled');
+    if(chk) chk.checked = gameSettings.ghostEnabled;
+    saveSettings();
+    window.uiResume();
+};
 
 window.uiOpenOptions = () => showScreen('menu-options');
 window.uiBackToHome = () => showScreen('menu-home');
 
 window.uiStartGame = (forceSeed = null) => {
+    if (!window.keepReplayFlag) isReplayMode = false;
+    window.keepReplayFlag = false;
     const inputSeed = document.getElementById('seed-input').value.trim();
     const finalSeed = forceSeed || inputSeed || "random";
-
     // --- AUDIO START ---
     if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     manageMusic('start_new_track'); // Avvia nuova traccia
     startCarSounds(); // Prepara i loop motore/skid
-
     // Nascondi Menu
     document.getElementById('main-menu').style.display = 'none';
     document.getElementById('pause-modal').style.display = 'none';
-
     // Aggiorna URL Hash (opzionale, per condivisione rapida)
     window.location.hash = finalSeed;
-
     // Genera Pista
     // Nota: dobbiamo recuperare i materiali dal world esistente o salvarli in init.
     // Per semplicità, li ricreiamo al volo o li salviamo globalmente.
@@ -1983,18 +2148,22 @@ window.uiTogglePause = () => {
         window.uiResume();
     } else {
         currentState = GAME_STATE.PAUSED;
-        manageMusic('pause'); // Abbassa volume
-        if(engineGain) engineGain.gain.value = 0; // Muta motore in pausa
+        manageMusic('pause');
+        if(engineGain) engineGain.gain.value = 0;
         if(skidGain) skidGain.gain.value = 0;
         document.getElementById('pause-modal').style.display = 'flex';
-        // LOGICA VISIBILITÀ PULSANTI RESPAWN
-        // Devono apparire solo se la logica di gioco lo permette (similmente al tasto INVIO)
-        // 1. Non deve essere finito (FINISHED)
-        // 2. Deve aver superato lo start (index > 0). Index 0 è lo start, index -1 è pre-start.
+        const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+        const rec = history.find(r => r.seed === currentSeed);
         const canRespawn = (currentState !== GAME_STATE.FINISHED && currentCheckpointData.index > 0);
-        const displayMode = canRespawn ? 'block' : 'none';
-        document.getElementById('btn-respawn-fly').style.display = displayMode;
-        document.getElementById('btn-respawn-stand').style.display = displayMode;
+        const displayMode = canRespawn ? 'flex' : 'none';
+        document.getElementById('btn-respawn-div').style.display = displayMode;
+        const btnGhost = document.getElementById('btn-toggle-ghost');
+        if(!rec || !rec.ghostData || rec.ghostData.length === 0) { 
+            btnGhost.style.display = 'none'; 
+        } else {
+            btnGhost.style.display = 'block';
+            btnGhost.innerText = `REPLAY GHOSTCAR: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+        }
     }
     updateTouchVisibility();
 };
