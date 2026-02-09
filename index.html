@@ -66,9 +66,11 @@
         <!-- Schermata Record -->
         <div id="menu-records" class="menu-screen" style="display:none;">
             <h2>Record dei seed salvati</h2>
-            <div id="records-list">
-                <!-- Lista generata via JS -->
+            <div style="display: flex; gap: 10px; width: 100%;">
+                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiTriggerImport()">IMPORTA</button>
+                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiOpenExport()">ESPORTA</button>
             </div>
+            <div id="records-list"></div>
             <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
         </div>
 
@@ -246,6 +248,18 @@
                 <label style="color: #888; font-size: 14px;">Non chiedermelo più</label>
             </div>
         </div>
+    </div>
+
+    <!-- Modal Checkbox dei records -->
+    <div id="selection-modal" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.95); z-index: 4000;">
+        <h2 id="selection-title">SELEZIONA RECORD</h2>
+        <div id="selection-list" style="width: 90%; max-width: 600px; height: 50vh; overflow-y: auto; background: #222; border: 1px solid #444; margin-bottom: 20px;"></div>
+        <div class="btn-row" style="flex-wrap: wrap; justify-content: center;">
+            <button class="menu-btn secondary" style="width: auto;" onclick="document.getElementById('selection-modal').style.display='none'">ANNULLA</button>
+            <button class="menu-btn" style="width: auto;" id="btn-toggle-select" onclick="window.uiToggleSelectAll()">DESELEZIONA TUTTI</button>
+            <button class="menu-btn primary" style="width: auto;" id="btn-confirm-selection">CONFERMA</button>
+        </div>
+        <input type="file" id="import-file-input" style="display:none" accept=".json">
     </div>
 
     <!-- Import Map corretta per ES Modules -->

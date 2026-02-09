@@ -2248,6 +2248,7 @@ window.uiOpenPlay = () => {
     }
 };
 
+//RECORDS
 window.uiOpenRecords = () => {
     const list = document.getElementById('records-list');
     list.innerHTML = '';
@@ -2256,36 +2257,33 @@ window.uiOpenRecords = () => {
     if (history.length === 0) {
         list.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Nessun record trovato.</div>';
     } else {
-        history.forEach(rec => {
+        history.forEach((rec, index) => {
             const div = document.createElement('div');
-            // Check Compatibilità
             const recVer = parseInt(rec.version || "0");
             const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
             const isCompatible = recVer >= minVer;
-
             div.className = 'record-item';
-            if (!isCompatible) div.classList.add('outdated'); // Classe CSS nuova
-
-            // Se non compatibile, niente bottone REPLAY e alert su PLAY
-            let replayBtn = '';
-            if (isCompatible && rec.ghostData) {
-                replayBtn = `<button onclick="window.uiStartReplay('${rec.seed}')" style="background:#00aaaa;">REPLAY</button>`;
-            }
-
-            // Nota "(Old)" se vecchio
-            const versionDisplay = isCompatible ? `v${rec.version}` : `v${rec.version}`;
-
+            if (!isCompatible) div.classList.add('outdated');
+            div.onclick = (e) => {
+                if (e.target.tagName === 'BUTTON') return;
+                navigator.clipboard.writeText(rec.seed);
+                const originalText = div.querySelector('.record-seed').innerText;
+                div.querySelector('.record-seed').innerText = "COPIATO!";
+                setTimeout(() => div.querySelector('.record-seed').innerText = originalText, 1000);
+            };
+            let replayBtn = (isCompatible && rec.ghostData) ?
+            `<button onclick="window.uiStartReplay('${rec.seed}')" style="background:#00aaaa;">REPLAY</button>` : '';
             div.innerHTML = `
             <div class="record-meta">
-            <span class="record-seed"> ${rec.seed}<span style="font-size:0.8em;">(${versionDisplay})</span></span>
-            ${isCompatible ? `` : `<span style="font-size:0.7em;"> Seed non più compatibile</span>`}
-            <span style="color:#666; font-size:0.7em;"> <span style="font-size:0.9em;">${rec.date}</span></span>
+            ${rec.desc ? `<div class="record-desc">${rec.desc}</div>` : ''}
+            <span class="record-seed ${rec.desc ? 'has-desc' : ''}">${rec.seed}<small>(v${recVer})</small></span>
+            <span style="font-size:0.7em;">${rec.date}</span>
             </div>
             <div class="record-time">${rec.formattedTime}</div>
             <div class="record-actions">
+            <button class="edit-desc-btn" onclick="window.uiEditDescription(${index})">✎</button>
             <button onclick="window.uiStartGame('${rec.seed}')">PLAY</button>
             ${replayBtn}
-            <button onclick="navigator.clipboard.writeText('${window.location.origin}/#${rec.seed}'); alert('Link copiato!')">SHARE</button>
             </div>
             `;
             list.appendChild(div);
@@ -2293,6 +2291,102 @@ window.uiOpenRecords = () => {
     }
     showScreen('menu-records');
 };
+window.uiEditDescription = (index) => {
+    let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    const currentDesc = history[index].desc || "";
+    const newDesc = prompt("Inserisci una descrizione per questo record:", currentDesc);
+    if (newDesc !== null) {
+        history[index].desc = newDesc.substring(0, 30); // Limite 30 caratteri
+        localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
+        window.uiOpenRecords();
+    }
+};
+let tempSelectionList = [];
+window.uiToggleSelectAll = () => {
+    const checkboxes = document.querySelectorAll('#selection-list input[type="checkbox"]');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    checkboxes.forEach(cb => cb.checked = !allChecked);
+    document.getElementById('btn-toggle-select').innerText = !allChecked ? "DESELEZIONA TUTTI" : "SELEZIONA TUTTI";
+};
+// ESPORTA RECORDS
+window.uiOpenExport = () => {
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    if (history.length === 0) return alert("Nessun record da esportare");
+    renderSelectionModal(history, "ESPORTA SELEZIONATI", (selected) => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "webmania_records_export.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        document.getElementById('selection-modal').style.display = 'none';
+    });
+};
+// IMPORTA RECORDS
+window.uiTriggerImport = () => {
+    document.getElementById('import-file-input').click();
+};
+document.getElementById('import-file-input').onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const imported = JSON.parse(event.target.result);
+            if (!Array.isArray(imported)) throw new Error("Formato non valido");
+            renderSelectionModal(imported, "IMPORTA SELEZIONATI", (selected) => {
+                let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+                selected.forEach(newItem => {
+                    const exists = history.some(h => h.seed === newItem.seed && h.time === newItem.time);
+                    if (!exists) history.unshift(newItem);
+                });
+                    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
+                    document.getElementById('selection-modal').style.display = 'none';
+                    window.uiOpenRecords();
+            });
+        } catch (err) { alert("Errore nel caricamento del file JSON"); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+};
+function renderSelectionModal(data, btnText, onConfirm) {
+    const modal = document.getElementById('selection-modal');
+    const list = document.getElementById('selection-list');
+    const confirmBtn = document.getElementById('btn-confirm-selection');
+    const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
+    list.innerHTML = '';
+    modal.style.display = 'flex';
+    confirmBtn.innerText = btnText;
+    data.forEach((item, i) => {
+        const row = document.createElement('div');
+        const recVer = parseInt(item.version || "0");
+        const isCompatible = recVer >= minVer;
+        row.className = 'selection-item' + (isCompatible ? '' : ' outdated');
+        const descPart = item.desc ? `${item.desc} - ` : '';
+        const versionPart = `(v${item.version || '?'})${!isCompatible ? 'Outdated' : ''}`;
+        const mainLabel = `${descPart}${item.seed}${versionPart}`;
+        row.innerHTML = `
+            <input type="checkbox" id="sel-${i}" ${isCompatible ? 'checked' : ''}>
+            <label for="sel-${i}" style="color:white; font-size:14px; cursor:pointer; flex:1;">
+            <div style="font-weight: bold; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${mainLabel}</div>
+            <div style="font-size: 12px; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${item.formattedTime} - ${item.date}</div>
+            </label>
+        `;
+        row.onclick = (e) => {
+            if (e.target.tagName !== 'INPUT') {
+                const cb = row.querySelector('input');
+                cb.checked = !cb.checked;
+            }
+        };
+        list.appendChild(row);
+    });
+    confirmBtn.onclick = () => {
+        const selected = data.filter((_, i) => list.querySelectorAll('input[type="checkbox"]')[i].checked);
+        if (selected.length === 0) return alert("Seleziona almeno un record");
+        onConfirm(selected);
+    };
+}
 //ghostcar
 function createGhostVisuals() {
     if (ghostMesh) scene.remove(ghostMesh);
