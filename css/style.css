@@ -1,4 +1,5 @@
-body, html {
+body,
+html {
     margin: 0;
     padding: 0;
     width: 100%;
@@ -17,14 +18,15 @@ body, html {
     left: 0;
     background-color: #000;
 }
+
 #game-container canvas {
-display: block;
-width: 100%;
-height: 100%;
-image-rendering: -moz-crisp-edges;
-image-rendering: -webkit-crisp-edges;
-image-rendering: pixelated;
-image-rendering: crisp-edges;
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: -webkit-crisp-edges;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
 }
 
 #ui-layer {
@@ -33,7 +35,8 @@ image-rendering: crisp-edges;
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none; /* Permette di cliccare attraverso l'UI sul gioco */
+    pointer-events: none;
+    /* Permette di cliccare attraverso l'UI sul gioco */
 }
 
 #timer {
@@ -53,7 +56,8 @@ image-rendering: crisp-edges;
     left: 50%;
     transform: translateX(-50%);
     font-size: 24px;
-    color: #ffd700; /* Oro */
+    color: #ffd700;
+    /* Oro */
     text-shadow: 1px 1px 0 #000;
 }
 
@@ -95,17 +99,17 @@ button:hover {
 }
 
 #countdown {
-position: absolute;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-font-size: 120px;
-font-weight: 900;
-color: #fff;
-text-shadow: 0 0 20px #ff0000;
-font-style: italic;
-display: none;
-z-index: 100;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 120px;
+    font-weight: 900;
+    color: #fff;
+    text-shadow: 0 0 20px #ff0000;
+    font-style: italic;
+    display: none;
+    z-index: 100;
 }
 
 .respawn-overlay {
@@ -128,10 +132,13 @@ z-index: 100;
     z-index: 2000;
     overflow-y: auto;
 }
-.menu-overlay h2 { color: white; }
+
+.menu-overlay h2 {
+    color: white;
+}
 
 .game-title {
-    font-size: min(80px, 15vh); 
+    font-size: min(80px, 15vh);
     color: #fff;
     font-style: italic;
     text-shadow: 4px 4px 0 #ff4444;
@@ -148,11 +155,12 @@ z-index: 100;
 .menu-screen {
     display: flex;
     flex-direction: column;
-    gap: min(15px, 2.5vh); 
+    gap: min(15px, 2.5vh);
     width: 100%;
     max-width: 500px;
     align-items: center;
 }
+
 .menu-screen::after {
     content: "";
     min-height: 20px;
@@ -160,14 +168,15 @@ z-index: 100;
 
 .menu-btn {
     width: 100%;
-    padding: min(15px, 2vh); 
-    font-size: min(24px, 5vh); 
+    padding: min(15px, 2vh);
+    font-size: min(24px, 5vh);
     background: #333;
     border: 2px solid #555;
     color: #fff;
     text-transform: uppercase;
     transition: all 0.2s;
 }
+
 .menu-btn:focus {
     background: #fff;
     color: #000;
@@ -181,9 +190,19 @@ z-index: 100;
     transform: scale(1.05);
 }
 
-.menu-btn.primary { background: #00aa00; border-color: #00ff00; }
-.menu-btn.secondary { background: #555; }
-.menu-btn.danger { background: #aa0000; border-color: #ff0000; }
+.menu-btn.primary {
+    background: #00aa00;
+    border-color: #00ff00;
+}
+
+.menu-btn.secondary {
+    background: #555;
+}
+
+.menu-btn.danger {
+    background: #aa0000;
+    border-color: #ff0000;
+}
 
 #seed-input {
     width: 100%;
@@ -206,12 +225,12 @@ z-index: 100;
 
 /* Lista Record */
 #records-list {
-width: 100%;
-height: 300px;
-overflow-y: auto;
-background: #222;
-border: 1px solid #444;
-margin-bottom: 20px;
+    width: 100%;
+    height: 300px;
+    overflow-y: auto;
+    background: #222;
+    border: 1px solid #444;
+    margin-bottom: 20px;
 }
 
 .record-item {
@@ -223,14 +242,57 @@ margin-bottom: 20px;
     color: #ccc;
     font-size: 14px;
 }
-.record-item:hover { background: #333; }
-.record-meta { display: flex; flex-direction: column; text-align: left; }
-.record-seed { color: #fff; font-weight: bold; font-size: 18px; }
-.record-time { color: #ffd700; font-weight: bold; font-size: 20px; }
-.record-actions button { font-size: 12px; padding: 5px; margin-left: 5px; width: auto; }
+
+.record-item:hover {
+    background: #333;
+}
+
+.record-meta {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+
+.record-seed {
+    color: #fff;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.record-time {
+    color: #ffd700;
+    font-weight: bold;
+    font-size: 20px;
+}
+
+.record-actions button {
+    font-size: 12px;
+    padding: 5px;
+    margin-left: 5px;
+    width: auto;
+}
+
+.record-item.outdated {
+    opacity: 0.5;
+    background: #1a1a1a;
+    border-bottom: 1px dashed #333;
+}
+
+.record-item.outdated .record-time {
+    color: #888;
+    /* Toglie l'oro */
+}
+
+.record-item.outdated .record-seed {
+    color: #888;
+}
 
 /* Pausa Trasparente */
-#pause-modal { background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); }
+#pause-modal {
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(5px);
+}
+
 .paused-box {
     display: flex;
     flex-direction: column;
@@ -249,11 +311,14 @@ margin-bottom: 20px;
     justify-content: space-between;
     align-items: center;
     width: 100%;
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     padding: 10px;
     box-sizing: border-box;
 }
-.setting-row span { color: white; }
+
+.setting-row span {
+    color: white;
+}
 
 .setting-row label {
     color: #fff;
@@ -277,7 +342,12 @@ margin-bottom: 20px;
     border-bottom: 1px solid #333;
     padding: 5px 0;
 }
-.bind-label { font-size: 16px; color: #ccc; }
+
+.bind-label {
+    font-size: 16px;
+    color: #ccc;
+}
+
 .bind-btn {
     background: #333;
     border: 1px solid #555;
@@ -287,15 +357,25 @@ margin-bottom: 20px;
     font-family: 'Courier New';
     font-size: 14px;
 }
-.bind-btn:hover { background: #555; }
-.bind-btn.empty { color: #555; font-style: italic; }
+
+.bind-btn:hover {
+    background: #555;
+}
+
+.bind-btn.empty {
+    color: #555;
+    font-style: italic;
+}
 
 /* --- TOUCH CONTROLS --- */
 #touch-controls {
-position: absolute;
-top: 0; left: 0; width: 100%; height: 100%;
-pointer-events: none;
-z-index: 1000;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1000;
 }
 
 .touch-zone {
@@ -303,11 +383,17 @@ z-index: 1000;
     bottom: 20px;
     display: flex;
     gap: 20px;
-    pointer-events: auto; /* I pulsanti ricevono input */
+    pointer-events: auto;
+    /* I pulsanti ricevono input */
 }
 
-#touch-left { left: 20px; }
-#touch-right { right: 20px; }
+#touch-left {
+    left: 20px;
+}
+
+#touch-right {
+    right: 20px;
+}
 
 .touch-btn {
     position: absolute;
@@ -327,12 +413,17 @@ z-index: 1000;
     margin: 0;
     box-sizing: border-box;
 }
-.touch-btn.small { 
-    width: 10vh; 
-    height: 10vh; 
-    font-size: 4vh; 
+
+.touch-btn.small {
+    width: 10vh;
+    height: 10vh;
+    font-size: 4vh;
 }
-.touch-btn:active { background: rgba(255, 255, 255, 0.5); }
+
+.touch-btn:active {
+    background: rgba(255, 255, 255, 0.5);
+}
+
 .touch-btn.is-pressed {
     background: rgba(255, 0, 0, 0.6) !important;
     border-color: #ff0000 !important;
@@ -340,19 +431,27 @@ z-index: 1000;
 
 /* Touch Editor */
 #touch-editor-overlay {
-position: absolute;
-top: 0; left: 0; width: 100%; height: 100%;
-background: rgba(0,0,0,0.8);
-z-index: 2500;
-display: flex;
-justify-content: center;
-align-items: center;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 2500;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
+
 .editor-msg {
-    position: absolute; top: 20px;
-    color: #0f0; font-size: 24px; font-weight: bold;
+    position: absolute;
+    top: 20px;
+    color: #0f0;
+    font-size: 24px;
+    font-weight: bold;
     text-align: center;
 }
+
 .editable-btn {
     z-index: 3001;
     border: 2px dashed #ffff00;
@@ -373,11 +472,12 @@ input[type="color"] {
     background: none;
     cursor: pointer;
 }
+
 input[type="color"]::-webkit-color-swatch-wrapper {
     padding: 0;
 }
+
 input[type="color"]::-webkit-color-swatch {
     border: 2px solid #fff;
     border-radius: 4px;
 }
-
