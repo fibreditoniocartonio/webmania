@@ -317,6 +317,8 @@ let previewAngle = 0;
 let bestRunSplits = []; // Tempi dei checkpoint del record salvato
 let currentRunSplits = []; // Tempi dei checkpoint della corsa attuale
 let checkpointCount = 0; // Contatore per assegnare l'ordine ai checkpoint
+let flyingRespawnSequence = [];
+let flyingRespawnIndex = 0;
 
 // Stato Corrente
 let currentState = GAME_STATE.START;
@@ -1490,7 +1492,25 @@ function animate() {
     lastFrameTime = now;
 
     if (currentState !== GAME_STATE.START && currentState !== GAME_STATE.FINISHED) {
-        world.step(1 / CONFIG.stepFrequency);
+        // Se siamo in flying respawn, non eseguiamo la normale simulazione fisica per l'auto
+        if (currentState === GAME_STATE.RESPAWNING_FLYING) {
+            if (flyingRespawnIndex < flyingRespawnSequence.length) {
+                const data = flyingRespawnSequence[flyingRespawnIndex];
+                chassisBody.position.set(data.p[0], data.p[1], data.p[2]);
+                chassisBody.quaternion.set(data.q[0], data.q[1], data.q[2], data.q[3]);
+                chassisBody.velocity.copy(currentCheckpointData.velocity);
+                chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
+                flyingRespawnIndex++;
+            } else {
+                chassisBody.velocity.copy(currentCheckpointData.velocity);
+                chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
+                currentState = GAME_STATE.RACING;
+                uiMsg.style.display = 'none';
+                world.step(1 / CONFIG.stepFrequency);            
+            }
+        } else {
+            world.step(1 / CONFIG.stepFrequency);
+        }
         if (currentState === GAME_STATE.RACING || currentState === GAME_STATE.RESPAWNING_FLYING) {
             gameTime += dt * 1000;
         }
@@ -1699,12 +1719,6 @@ function animate() {
                 Math.abs(localPos.z - archZ) < triggerDepth;
 
             if (insideTrigger) {
-                if (currentState === GAME_STATE.RESPAWNING_FLYING && currentCheckpointData.index === index) {
-                    // PUNTO 4: Ritorna il controllo al giocatore quando ripassa il checkpoint
-                    currentState = GAME_STATE.RACING;
-                    uiMsg.style.display = 'none';
-                }
-
                 if (b.isCheckpoint && currentState === GAME_STATE.RACING && currentCheckpointData.index !== index) {
                     playSfx('checkpoint');
                     currentCheckpointData.index = index;
@@ -1779,7 +1793,7 @@ function animate() {
 // --- UTILS ---
 function doRespawn(type) {
     if (!chassisBody) return;
-
+    uiMsg.style.display = 'none'; //tolgo i messaggi attivi
     if (type === 'standing') {
         let count = 3;
         const blockBody = trackBodies[currentCheckpointData.index];
@@ -1800,29 +1814,35 @@ function doRespawn(type) {
         chassisBody.velocity.set(0, 0, 0);
         chassisBody.angularVelocity.set(0, 0, 0);
         startCountdown(count);
-
     } else if (type === 'flying') {
-        uiMsg.innerText = "Rewind...";
-        uiMsg.style.display = 'block';
-
-        // Spostiamo indietro la macchina di 0.5 secondi lungo il suo vettore velocità
-        const rewindDuration = 0.5; // secondi
-        const rewindVector = currentCheckpointData.velocity.clone().scale(rewindDuration);
-        const rewindPosition = currentCheckpointData.position.clone().vsub(rewindVector);
-
-        chassisBody.position.copy(rewindPosition);
-        chassisBody.quaternion.copy(currentCheckpointData.quaternion);
-        chassisBody.velocity.copy(currentCheckpointData.velocity);
-        chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
-
-        //gameTime = currentCheckpointData.timeStamp;
-        currentState = GAME_STATE.RESPAWNING_FLYING;
+        // Recuperiamo i dati registrati prima del checkpoint
+        const cpTime = currentCheckpointData.timeStamp;
+        // Troviamo l'indice nel recording che corrisponde al tempo del checkpoint
+        // Cerchiamo l'ultimo frame registrato che non superi il tempo del checkpoint
+        let targetIdx = ghostDataRecording.findIndex(d => d.t >= cpTime);
+        if (targetIdx === -1) targetIdx = ghostDataRecording.length - 1;
+        // Prendiamo gli ultimi 40 frame (circa 0.6 secondi a 60fps) per il playback
+        const startIdx = Math.max(0, targetIdx - 40);
+        flyingRespawnSequence = ghostDataRecording.slice(startIdx, targetIdx + 1);
+        flyingRespawnIndex = 0;
+        if (flyingRespawnSequence.length > 0) {
+            uiMsg.innerText = "Rewind...";
+            uiMsg.style.display = 'block';
+            // Posizioniamo subito l'auto all'inizio della sequenza di recupero
+            const firstFrame = flyingRespawnSequence[0];
+            chassisBody.position.set(firstFrame.p[0], firstFrame.p[1], firstFrame.p[2]);
+            chassisBody.quaternion.set(firstFrame.q[0], firstFrame.q[1], firstFrame.q[2], firstFrame.q[3]);
+            // Azzeriamo le velocità temporaneamente per evitare attriti fisici strani durante il "trascinamento"
+            chassisBody.velocity.set(0, 0, 0);
+            chassisBody.angularVelocity.set(0, 0, 0);
+            currentState = GAME_STATE.RESPAWNING_FLYING;
+        } else {
+            doRespawn('standing');
+        }
     }
-
     // Reset Audio immediato per evitare code di suoni vecchi
     if (engineGain) engineGain.gain.value = 0;
     if (skidGain) skidGain.gain.value = 0;
-
     if (vehicle) {
         vehicle.wheelInfos.forEach((w, i) => {
             vehicle.applyEngineForce(0, i);
@@ -2474,7 +2494,6 @@ window.uiTogglePause = () => {
     if (currentState === GAME_STATE.PAUSED) {
         window.uiResume();
     } else {
-        currentState = GAME_STATE.PAUSED;
         manageMusic('pause');
         if (engineGain) engineGain.gain.value = 0;
         if (skidGain) skidGain.gain.value = 0;
@@ -2491,6 +2510,7 @@ window.uiTogglePause = () => {
             btnGhost.style.display = 'block';
             btnGhost.innerText = `REPLAY GHOSTCAR: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
         }
+        currentState = GAME_STATE.PAUSED;        
     }
     updateTouchVisibility();
 };
