@@ -297,9 +297,10 @@ function updateTouchVisibility() {
         touchDiv.style.display = 'none';
     }
 }
-
+window.gameSettings = gameSettings;
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
+let frameAccumulator = 0;
 let physicsMaterials = {}; // Contenitore per i materiali fisici globali
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
@@ -1585,13 +1586,7 @@ function animate() {
     if (currentState === GAME_STATE.PAUSED || currentState === GAME_STATE.MENU) {
         handleMenuNavigation();
         lastFrameTime = now;
-
-        // Render menu limitato a maxFPS
-        const fpsInterval = 1000 / (gameSettings.maxFPS || 60);
-        if (now - lastRenderTime > fpsInterval) {
-            lastRenderTime = now - ((now - lastRenderTime) % fpsInterval);
-            renderer.render(scene, camera);
-        }
+        renderer.render(scene, camera);
         return;
     }
     lastFrameTime = now;
@@ -1815,14 +1810,11 @@ function animate() {
         });
     }
 
-    // --- RENDER LOOP (Limitato da Max FPS) ---
-    // Calcoliamo quanto tempo è passato dall'ultimo render effettivo
-    const fpsInterval = 1000 / (gameSettings.maxFPS || 60);
-    const elapsed = now - lastRenderTime;
-
-    if (elapsed > fpsInterval) {
-        // Aggiorniamo il timestamp dell'ultimo render, compensando l'overshoot per evitare drift
-        lastRenderTime = now - (elapsed % fpsInterval);
+    // --- RENDER LOOP (Limitato da Max FPS tramite frameAccumulator) ---
+    frameAccumulator = Math.min(frameAccumulator + (gameSettings.maxFPS / 60), 2);
+    if (frameAccumulator >= 1) {
+        lastRenderTime = now;
+        frameAccumulator -= 1; //disegno il frame e resetto.
 
         // GHOST VISUAL (Update solo quando renderizziamo)
         const hasGhostData = ghostDataPlayback && ghostDataPlayback.length > 0;
