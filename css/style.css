@@ -157,7 +157,7 @@ button:hover {
     flex-direction: column;
     gap: min(15px, 2.5vh);
     width: 100%;
-    max-width: 500px;
+    max-width: 700px;
     align-items: center;
 }
 
@@ -309,6 +309,25 @@ button:hover {
     width: 25px;
     height: 25px;
     cursor: pointer;
+}
+.record-item.imported-record {
+    border-left: 4px solid #00aaff;
+    background: linear-gradient(90deg, rgba(0,170,255,0.1) 0%, rgba(0,0,0,0) 100%);
+}
+.imported-tag {
+    font-size: 12px;
+    color: #00aaff;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    display: inline-block;
+}
+.btn-share {
+    background: #00aaff;
+}
+.btn-share:hover {
+    background: #0088cc;
 }
 
 #pause-modal {

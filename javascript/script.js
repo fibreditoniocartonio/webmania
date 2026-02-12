@@ -69,8 +69,8 @@ const DEFAULT_SETTINGS = {
     carColors: {
         body: '#d92525',
         wheels: '#111111',
-        rims: '#ffff00',
-        spoiler: '#222222',
+        rims: '#ffffff',
+        spoiler: '#ffffff',
         speedo: '#ffffff'
     },
     keyBinds: {
@@ -451,17 +451,25 @@ function init() {
 
         // Versione UI
         document.getElementById('version-display').innerText = "v" + GAME_VERSION;
-        // Gestione URL per Seed Diretto
-        // Supporto per http://sito/#SEEDCODE
-        const hashSeed = window.location.hash.replace('#', '');
-        // O supporto per http://sito/SEEDCODE (se supportato dal server, altrimenti usa hash)
-        const pathSeed = window.location.pathname.split('/').pop();
-        const urlSeed = hashSeed || (pathSeed && pathSeed.length > 0 && pathSeed !== 'index.html' ? pathSeed : null);
-        if (urlSeed) {
-            window.uiStartGame(urlSeed);
+        
+        // Gestione URL Hash
+        const hash = window.location.hash.replace('#', '');
+        if (hash.startsWith('share=')) {
+            // Modalità Importazione Replay
+            currentState = GAME_STATE.MENU;
+            // Un piccolo timeout per assicurarsi che LZString sia caricato e il DOM pronto
+            setTimeout(() => handleSharedReplay(hash.substring(6)), 100);
         } else {
-            currentState = GAME_STATE.MENU; // Start in Menu
+            // Modalità Seed Diretto o Menu Classico
+            const pathSeed = window.location.pathname.split('/').pop();
+            const urlSeed = hash || (pathSeed && pathSeed.length > 0 && pathSeed !== 'index.html' ? pathSeed : null);
+            if (urlSeed) {
+                window.uiStartGame(urlSeed);
+            } else {
+                currentState = GAME_STATE.MENU; 
+            }
         }
+
         // Inizializza loop
         lastFrameTime = performance.now();
         loadSettings();
@@ -2277,13 +2285,14 @@ window.uiOpenRecords = () => {
     if (history.length === 0) {
         list.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Nessun record trovato.</div>';
     } else {
-        history.forEach((rec, index) => {
+            history.forEach((rec, index) => {
             const div = document.createElement('div');
             const recVer = parseInt(rec.version || "0");
             const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
             const isCompatible = recVer >= minVer;
             div.className = 'record-item';
             if (!isCompatible) div.classList.add('outdated');
+            const importedLabel = rec.isImported ? `<span class="imported-tag">IMPORTED REPLAY</span>` : '';
             div.onclick = (e) => {
                 if (e.target.tagName === 'BUTTON') return;
                 navigator.clipboard.writeText(rec.seed);
@@ -2293,17 +2302,21 @@ window.uiOpenRecords = () => {
             };
             let replayBtn = (isCompatible && rec.ghostData) ?
             `<button onclick="window.uiStartReplay('${rec.seed}')" style="background:#00aaaa;">REPLAY</button>` : '';
+            let shareBtn = (isCompatible && rec.ghostData) ? 
+            `<button class="btn-share" onclick="window.uiShareReplayLink('${rec.seed}')" title="Crea Link Condivisibile">🔗</button>` : '';
             div.innerHTML = `
             <div class="record-meta">
-            ${rec.desc ? `<div class="record-desc">${rec.desc}</div>` : ''}
-            <span class="record-seed ${rec.desc ? 'has-desc' : ''}">${rec.seed}<small>(v${recVer})</small></span>
-            <span style="font-size:0.7em;">${rec.date}</span>
+                ${rec.desc ? `<div class="record-desc">${rec.desc}</div>` : ''}
+                <span class="record-seed ${rec.desc ? 'has-desc' : ''}">${rec.seed}<small>(v${recVer})</small></span>
+                <span style="font-size:0.7em;">${rec.date}</span>
+                ${importedLabel}
             </div>
             <div class="record-time">${rec.formattedTime}</div>
             <div class="record-actions">
             <button class="edit-desc-btn" onclick="window.uiEditDescription(${index})">✎</button>
             <button onclick="window.uiStartGame('${rec.seed}')">PLAY</button>
             ${replayBtn}
+            ${shareBtn}
             </div>
             `;
             list.appendChild(div);
@@ -2359,7 +2372,10 @@ document.getElementById('import-file-input').onchange = (e) => {
                 let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
                 selected.forEach(newItem => {
                     const exists = history.some(h => h.seed === newItem.seed && h.time === newItem.time);
-                    if (!exists) history.unshift(newItem);
+                    if (!exists) {
+                        newItem.isImported = true;
+                        history.unshift(newItem);
+                    }
                 });
                     localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
                     document.getElementById('selection-modal').style.display = 'none';
@@ -2457,6 +2473,7 @@ window.toggleGhostInGame = () => {
     saveSettings();
     window.uiResume();
 };
+
 
 window.uiOpenOptions = () => showScreen('menu-options');
 window.uiBackToHome = () => showScreen('menu-home');
@@ -3182,6 +3199,130 @@ document.addEventListener('click', (e) => {
         playSfx('checkpoint', 0.5); // Usa il suono checkpoint come click (o uno dedicato)
     }
 });
+
+// --- SISTEMA DI CONDIVISIONE REPLAY TRAMITE URL ---
+let pendingImportData = null; // Variabile temporanea per il replay in arrivo
+function handleSharedReplay(compressedString) {
+    try {
+        // 1. Decompressione
+        const jsonString = LZString.decompressFromEncodedURIComponent(compressedString);
+        if (!jsonString) throw new Error("Decompressione fallita");
+        
+        const data = JSON.parse(jsonString);
+        
+        // 2. Controllo Versione
+        const recVer = parseInt(data.v || "0");
+        const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
+        
+        if (recVer < minVer) {
+            alert(`Impossibile importare: il replay è di una versione vecchia (v${recVer}). Richiesta v${minVer}+.`);
+            // Pulisci l'URL per evitare loop se l'utente ricarica
+            history.pushState("", document.title, window.location.pathname + window.location.search);
+            return;
+        }
+
+        // 3. Mostra Anteprima nel Menu
+        pendingImportData = data;
+        document.getElementById('import-meta-desc').innerText = data.d ? `"${data.d}"` : "";
+        document.getElementById('import-meta-seed').innerText = "SEED: " + data.s;
+        document.getElementById('import-meta-time').innerText = "TEMPO: " + formatTime(data.t);
+        document.getElementById('import-meta-ver').innerText = `Versione Replay: v${data.v}`;
+        
+        // Nascondi gli altri menu e mostra quello di importazione
+        document.querySelectorAll('.menu-screen').forEach(el => el.style.display = 'none');
+        document.getElementById('menu-import-confirm').style.display = 'flex';
+        document.getElementById('main-menu').style.display = 'flex'; // Assicura che l'overlay sia visibile
+
+    } catch (e) {
+        console.error(e);
+        alert("Link di condivisione non valido o corrotto.");
+        history.pushState("", document.title, window.location.pathname + window.location.search);
+    }
+}
+window.uiCancelImport = () => {
+    pendingImportData = null;
+    history.pushState("", document.title, window.location.pathname + window.location.search);
+    window.uiBackToHome();
+};
+window.uiConfirmImport = () => {
+    if (!pendingImportData) return;
+    
+    const historyData = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    
+    // Costruiamo l'oggetto record standard
+    const newRecord = {
+        seed: pendingImportData.s,
+        version: pendingImportData.v,
+        date: new Date().toLocaleString(),
+        time: pendingImportData.t,
+        formattedTime: formatTime(pendingImportData.t),
+        ghostData: pendingImportData.g,
+        splits: pendingImportData.sp,
+        desc: pendingImportData.d || "",
+        isImported: true
+    };
+
+    // Controllo esistenza
+    const existingIndex = historyData.findIndex(r => r.seed === newRecord.seed);
+    
+    if (existingIndex >= 0) {
+        const existing = historyData[existingIndex];
+        // Se esiste, chiedi conferma
+        const msg = `Hai già un record per questo seed (${existing.formattedTime}).\nIl replay condiviso è: ${newRecord.formattedTime}.\n\nVuoi SOVRASCRIVERE il tuo record?`;
+        if (!confirm(msg)) {
+            return; // Utente annulla
+        }
+        // Sovrascrivi
+        historyData[existingIndex] = newRecord;
+    } else {
+        // Aggiungi in cima
+        historyData.unshift(newRecord);
+        // Limita a 100
+        if (historyData.length > 100) historyData = historyData.slice(0, 100);
+    }
+
+    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(historyData));
+    
+    // Reset e vai ai record
+    pendingImportData = null;
+    history.pushState("", document.title, window.location.pathname + window.location.search); // Pulisci URL
+    window.uiOpenRecords(); // Mostra la lista aggiornata
+};
+// Funzione per generare il link (Export)
+window.uiShareReplayLink = (seed) => {
+    const historyData = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
+    const rec = historyData.find(r => r.seed === seed);
+    
+    if (!rec) { alert("Errore: record non trovato."); return; }
+
+    // Creiamo un oggetto "minificato" per risparmiare caratteri nell'URL
+    const shareObj = {
+        v: rec.version,
+        s: rec.seed,
+        t: rec.time,
+        g: rec.ghostData,
+        sp: rec.splits,
+        d: rec.desc
+    };
+
+    try {
+        const jsonStr = JSON.stringify(shareObj);
+        const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+        
+        const shareUrl = `${window.location.origin}${window.location.pathname}#share=${compressed}`;
+        
+        // Copia nella clipboard
+        navigator.clipboard.writeText(shareUrl).then(() => {
+            alert("LINK COPIATO NEGLI APPUNTI!\n\nInvia questo URL a un amico per sfidarlo.");
+        }, (err) => {
+            prompt("Copia questo link:", shareUrl);
+        });
+
+    } catch (e) {
+        console.error(e);
+        alert("Errore durante la generazione del link (Replay troppo grande?)");
+    }
+};
 
 // Init
 init();

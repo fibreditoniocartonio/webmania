@@ -63,6 +63,21 @@
             </div>
         </div>
 
+        <!-- Schermata Importazione Replay Condiviso -->
+        <div id="menu-import-confirm" class="menu-screen" style="display:none;">
+            <h2 style="margin-bottom: 5px;">REPLAY CONDIVISO</h2>
+            <div style="text-align: center; color: #ccc; margin-bottom: 20px;">
+                <div id="import-meta-desc" style="color: #fff; font-weight:bold; font-size: 26px;"></div>
+                <div id="import-meta-seed" style="color: #fff; font-size: 22px; font-weight: bold;">SEED: ???</div>
+                <div id="import-meta-time" style="color: #ffd700; font-size: 20px;">TEMPO: --:--.---</div>
+                <div id="import-meta-ver" style="font-size: 12px; margin-top: 10px;"></div>
+            </div>
+            <div class="btn-row">
+                <button class="menu-btn secondary" onclick="window.uiCancelImport()">ANNULLA</button>
+                <button class="menu-btn primary" onclick="window.uiConfirmImport()">SALVA & GUARDA</button>
+            </div>
+        </div>
+
         <!-- Schermata Record -->
         <div id="menu-records" class="menu-screen" style="display:none;">
             <h2>Record dei seed salvati</h2>
@@ -272,7 +287,7 @@
             }
         }
     </script>
-    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
     <script type="module" src="javascript/script.js"></script>
 </body>
 </html>
