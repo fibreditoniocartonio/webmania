@@ -92,7 +92,7 @@
         <!-- Schermata Opzioni Principale -->
         <div id="menu-options" class="menu-screen" style="display:none;">
             <h2>OPZIONI</h2>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">GENERALI & AUDIO</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">IMPOSTAZIONI</button>
             <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')">COMANDI</button>
             <button class="menu-btn" onclick="window.uiOpenCustomize()">PERSONALIZZA AUTO</button>
             <button class="menu-btn" onclick="window.open('https://fibreditoniocartonio.github.io/', '_blank')">CREDITI</button>
@@ -137,12 +137,21 @@
 
         <!-- Sottomenu Generali -->
         <div id="opt-general" class="menu-screen" style="display:none;">
-            <h2>GENERALI</h2>
+            <h2>GRAFICA</h2>
             <!-- Risoluzione Interna -->
             <div class="setting-row">
                 <label>Risoluzione Interna</label>
                 <input type="range" id="opt-render-height" min="144" max="1080" step="36" onchange="window.updateSetting('renderHeight', this.value)">
                 <span id="val-render-height"></span>
+            </div>
+            <div class="setting-row">
+                <label>FPS Massimi</label>
+                <select id="opt-max-fps" onchange="window.updateSetting('maxFPS', this.value)" style="background: #222; color: #fff; border: 1px solid #555; font-family: inherit; font-size: 16px; padding: 5px;">
+                    <option value="15">15 FPS</option>
+                    <option value="20">20 FPS</option>
+                    <option value="30">30 FPS</option>
+                    <option value="60">60 FPS</option>
+                </select>
             </div>
             <div class="setting-row">
                 <label>Antialiasing (Richiede Ricarica pagina)</label>
@@ -158,6 +167,7 @@
                 <input type="range" id="opt-max-skids" min="0" max="500" step="10" onchange="window.updateSetting('maxSkidmarks', this.value)">
                 <span id="val-max-skids"></span>
             </div>
+            <h2>RECORDS</h2>
             <div class="setting-row">
                 <label>Max Record Salvati</label>
                 <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">

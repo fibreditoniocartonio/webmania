@@ -58,6 +58,7 @@ function getGpBtnName(idx) {
 const DEFAULT_SETTINGS = {
     renderHeight: 468,
     antialias: true,
+    maxFPS: 60,
     renderDistance: 150,
     maxRecords: 25,
     maxSkidmarks: 200,
@@ -189,6 +190,9 @@ function applySettings() {
     const elDist = document.getElementById('val-render-dist');
     if (elDist) elDist.innerText = gameSettings.renderDistance;
     document.getElementById('opt-render-dist').value = gameSettings.renderDistance;
+
+    const elFps = document.getElementById('opt-max-fps');
+    if (elFps) elFps.value = gameSettings.maxFPS;
 
     const elSkids = document.getElementById('val-max-skids');
     if (elSkids) elSkids.innerText = gameSettings.maxSkidmarks;
@@ -326,6 +330,7 @@ let flyingRespawnIndex = 0;
 let currentState = GAME_STATE.START;
 let gameTime = 0; // Tempo di gioco effettivo (escluso pause)
 let lastFrameTime = 0;
+let lastRenderTime = 0; //variable per cap fps
 let bestTime = null;
 const BEST_TIME_KEY = 'trackmaniaCloneBestTime'; //localstorage
 
@@ -1580,7 +1585,13 @@ function animate() {
     if (currentState === GAME_STATE.PAUSED || currentState === GAME_STATE.MENU) {
         handleMenuNavigation();
         lastFrameTime = now;
-        renderer.render(scene, camera); // Renderizza statico (freeze)
+
+        // Render menu limitato a maxFPS
+        const fpsInterval = 1000 / (gameSettings.maxFPS || 60);
+        if (now - lastRenderTime > fpsInterval) {
+            lastRenderTime = now - ((now - lastRenderTime) % fpsInterval);
+            renderer.render(scene, camera);
+        }
         return;
     }
     lastFrameTime = now;
@@ -1600,7 +1611,7 @@ function animate() {
                 chassisBody.angularVelocity.copy(currentCheckpointData.angularVelocity);
                 currentState = GAME_STATE.RACING;
                 uiMsg.style.display = 'none';
-                world.step(1 / CONFIG.stepFrequency);            
+                world.step(1 / CONFIG.stepFrequency);
             }
         } else {
             world.step(1 / CONFIG.stepFrequency);
@@ -1617,74 +1628,16 @@ function animate() {
         // Salviamo posizione e rotazione con precisione arrotondata per risparmiare spazio
         ghostDataRecording.push({
             t: Math.floor(gameTime),
-            p: [parseFloat(chassisBody.position.x.toFixed(3)), parseFloat(chassisBody.position.y.toFixed(3)), parseFloat(chassisBody.position.z.toFixed(3))],
-            q: [parseFloat(chassisBody.quaternion.x.toFixed(4)), parseFloat(chassisBody.quaternion.y.toFixed(4)), parseFloat(chassisBody.quaternion.z.toFixed(4)), parseFloat(chassisBody.quaternion.w.toFixed(4))]
+                                p: [parseFloat(chassisBody.position.x.toFixed(3)), parseFloat(chassisBody.position.y.toFixed(3)), parseFloat(chassisBody.position.z.toFixed(3))],
+                                q: [parseFloat(chassisBody.quaternion.x.toFixed(4)), parseFloat(chassisBody.quaternion.y.toFixed(4)), parseFloat(chassisBody.quaternion.z.toFixed(4)), parseFloat(chassisBody.quaternion.w.toFixed(4))]
         });
     }
 
-    // 2. RIPRODUZIONE (Sia in gioco che in replay mode)
-    const hasGhostData = ghostDataPlayback && ghostDataPlayback.length > 0;
-    // Gestione Timer Replay (FIX PUNTI 3 e 4)
-    if (isReplayMode && hasGhostData) {
-        const lastFrameTime = ghostDataPlayback[ghostDataPlayback.length - 1].t;
-        // Se il tempo di gioco supera la durata del replay, fermiamo il timer e mostriamo FINISH
-        if (gameTime >= lastFrameTime) {
-            gameTime = lastFrameTime; // Clampa il tempo
-            if (currentState !== GAME_STATE.FINISHED) {
-                currentState = GAME_STATE.FINISHED;
-                uiMsg.innerHTML = `<div style="color: #00ffff; font-size: 1.5em;">REPLAY FINISHED</div>`;
-                uiMsg.style.display = 'block';
-            }
-        }
-    }
-    if (hasGhostData && ghostMesh) {
-        const shouldShow = gameSettings.ghostEnabled &&
-            (currentState === GAME_STATE.RACING || currentState === GAME_STATE.FINISHED || isReplayMode || currentState === GAME_STATE.START);
-        ghostMesh.visible = shouldShow
-        if (shouldShow) {
-            // Cerchiamo il frame successivo che sia <= al gameTime corrente
-            // currentGhostIndex non viene mai resettato qui, solo in resetTrack, quindi è velocissimo
-            while (currentGhostIndex < ghostDataPlayback.length - 1 && ghostDataPlayback[currentGhostIndex + 1].t <= gameTime) {
-                currentGhostIndex++;
-            }
-            const data = ghostDataPlayback[currentGhostIndex];
-            if (data) {
-                ghostMesh.position.set(data.p[0], data.p[1], data.p[2]);
-                ghostMesh.quaternion.set(data.q[0], data.q[1], data.q[2], data.q[3]);
-            }
-        }
-    }
-
-    // 3. GESTIONE CAMERA
-    // Se siamo in Replay, la camera segue SEMPRE il fantasma (se esiste), altrimenti segue il nulla
-    if (isReplayMode) {
-        if (hasGhostData && ghostMesh) {
-            const camOffset = new THREE.Vector3(0, 4.0, 6.5);
-            camOffset.applyMatrix4(ghostMesh.matrixWorld);
-            camera.position.lerp(camOffset, 0.2);
-            camera.lookAt(ghostMesh.position.x, ghostMesh.position.y + 1.5, ghostMesh.position.z);
-        }
-    } else {
-        // Modalità Gioco Normale
-        if (cameraMode === 1) {
-            // FIRST PERSON: Posizione pilota (sopra il corpo centrale, leggermente avanti)
-            const camOffset = new THREE.Vector3(0, 1, -0.40);
-            camOffset.applyMatrix4(chassisMesh.matrixWorld);
-            camera.position.copy(camOffset);
-            const lookTarget = new THREE.Vector3(0, 0.75, -80);
-            lookTarget.applyMatrix4(chassisMesh.matrixWorld);
-            camera.lookAt(lookTarget);
-        } else {
-            // CHASE CAM (Default)
-            const camOffset = new THREE.Vector3(0, 4.0, 6.5);
-            camOffset.applyMatrix4(chassisMesh.matrixWorld);
-            camera.position.lerp(camOffset, 0.2);
-            camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
-        }
-    }
-
-    //logica macchina normale
+    // INPUTS & PHYSICS SYNC
     if (vehicle && chassisMesh) {
+        // Sync visuale parziale (necessaria per calcoli logici come skidmarks e camera target)
+        // Nota: La posizione effettiva della mesh verrà renderizzata solo nel blocco di disegno,
+        // ma aggiorniamo qui le coordinate per coerenza logica.
         chassisMesh.position.copy(chassisBody.position);
         chassisMesh.quaternion.copy(chassisBody.quaternion);
 
@@ -1714,22 +1667,14 @@ function animate() {
                 if (forwardSpeed > 1.0) brake = CONFIG.brakeForce * inBrake;
                 else engine = -CONFIG.engineForce / 2;
             }
-
-            if (wheelsOnGround === 0) { //se in aria
-                if (inBrake) chassisBody.angularVelocity.set(0, 0, 0); //airlock
+            if (wheelsOnGround === 0) {
+                if (inBrake) chassisBody.angularVelocity.set(0, 0, 0);
             } else {
                 steer = inSteer * CONFIG.maxSteerVal;
             }
         }
 
-        // Luci Freno
-        if (brakeLightL && (inBrake > 0.1)) {
-            brakeLightL.material.emissive.setHex(0xff0000);
-        } else if (brakeLightL) {
-            brakeLightL.material.emissive.setHex(0x000000);
-        }
-
-        // Sgommate (Skidmarks)
+        // Skidmarks Logica (creazione mesh)
         vehicle.wheelInfos.forEach(w => {
             if (w.sliding && currentState === GAME_STATE.RACING) {
                 if (gameTime % 50 < 25) {
@@ -1745,11 +1690,7 @@ function animate() {
                     // 2. MEDIAZIONE
                     tireColor.lerp(groundColor, 0.9);
                     const skidGeo = new THREE.PlaneGeometry(0.3, dynamicLength);
-                    const skidMat = new THREE.MeshBasicMaterial({
-                        color: tireColor,
-                        transparent: false,
-                        depthWrite: false
-                    });
+                    const skidMat = new THREE.MeshBasicMaterial({ color: tireColor, transparent: false, depthWrite: false });
                     const skidMesh = new THREE.Mesh(skidGeo, skidMat);
                     // 2. POSIZIONAMENTO
                     skidMesh.position.copy(w.raycastResult.hitPointWorld).add(new THREE.Vector3(0, 0.02, 0));
@@ -1788,17 +1729,7 @@ function animate() {
         vehicle.setSteeringValue(steer, 0);
         vehicle.setSteeringValue(steer, 1);
 
-        for (let i = 0; i < vehicle.wheelInfos.length; i++) {
-            vehicle.updateWheelTransform(i);
-            vehicle.wheelInfos[i].mesh.position.copy(vehicle.wheelInfos[i].worldTransform.position);
-            vehicle.wheelInfos[i].mesh.quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
-        }
-
-        const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
-        speedoCtx.clearRect(0, 0, 128, 64);
-        drawDigitalNumber(speedoCtx, kmh, 64, 32, 24, 44, 6);
-        speedoTexture.needsUpdate = true;
-
+        // CHECKPOINT & LOGICHE TRIGGER (Resta nel loop fisico per precisione)
         trackBodies.forEach((b, index) => {
             if (!b.isCheckpoint && !b.isFinish && !b.isStart) return;
 
@@ -1814,8 +1745,8 @@ function animate() {
             const triggerHeight = 8;
 
             const insideTrigger = Math.abs(localPos.x) < triggerWidth &&
-                localPos.y > 0 && localPos.y < triggerHeight &&
-                Math.abs(localPos.z - archZ) < triggerDepth;
+            localPos.y > 0 && localPos.y < triggerHeight &&
+            Math.abs(localPos.z - archZ) < triggerDepth;
 
             if (insideTrigger) {
                 if (b.isCheckpoint && currentState === GAME_STATE.RACING && currentCheckpointData.index !== index) {
@@ -1845,8 +1776,8 @@ function animate() {
                     const hitCount = Object.keys(currentRunSplits).length;
                     if (hitCount < checkpointCount) {
                         uiMsg.innerHTML = `
-                            <div style="color: #ff0000; font-size: 1.5em;">CHECKPOINT MANCANTI!</div>
-                            <div style="color: #ffffff; font-size: 1.1em;">Hai preso ${hitCount} checkpoint su ${checkpointCount}</div>
+                        <div style="color: #ff0000; font-size: 1.5em;">CHECKPOINT MANCANTI!</div>
+                        <div style="color: #ffffff; font-size: 1.1em;">Hai preso ${hitCount} checkpoint su ${checkpointCount}</div>
                         `;
                         uiMsg.style.display = 'block';
                         setTimeout(() => { if (currentState === GAME_STATE.RACING) uiMsg.style.display = 'none'; }, 2000);
@@ -1884,9 +1815,99 @@ function animate() {
         });
     }
 
-    // Update UI Timer usando la nuova funzione
-    uiTimer.innerText = formatTime(gameTime);
-    renderer.render(scene, camera);
+    // --- RENDER LOOP (Limitato da Max FPS) ---
+    // Calcoliamo quanto tempo è passato dall'ultimo render effettivo
+    const fpsInterval = 1000 / (gameSettings.maxFPS || 60);
+    const elapsed = now - lastRenderTime;
+
+    if (elapsed > fpsInterval) {
+        // Aggiorniamo il timestamp dell'ultimo render, compensando l'overshoot per evitare drift
+        lastRenderTime = now - (elapsed % fpsInterval);
+
+        // GHOST VISUAL (Update solo quando renderizziamo)
+        const hasGhostData = ghostDataPlayback && ghostDataPlayback.length > 0;
+        if (isReplayMode && hasGhostData) {
+            const lastRecTime = ghostDataPlayback[ghostDataPlayback.length - 1].t;
+            if (gameTime >= lastRecTime && currentState !== GAME_STATE.FINISHED) {
+                gameTime = lastRecTime;
+                currentState = GAME_STATE.FINISHED;
+                uiMsg.innerHTML = `<div style="color: #00ffff; font-size: 1.5em;">REPLAY FINISHED</div>`;
+                uiMsg.style.display = 'block';
+            }
+        }
+        if (hasGhostData && ghostMesh) {
+            const shouldShow = gameSettings.ghostEnabled &&
+            (currentState === GAME_STATE.RACING || currentState === GAME_STATE.FINISHED || isReplayMode || currentState === GAME_STATE.START);
+            ghostMesh.visible = shouldShow
+            if (shouldShow) {
+                while (currentGhostIndex < ghostDataPlayback.length - 1 && ghostDataPlayback[currentGhostIndex + 1].t <= gameTime) {
+                    currentGhostIndex++;
+                }
+                const data = ghostDataPlayback[currentGhostIndex];
+                if (data) {
+                    ghostMesh.position.set(data.p[0], data.p[1], data.p[2]);
+                    ghostMesh.quaternion.set(data.q[0], data.q[1], data.q[2], data.q[3]);
+                }
+            }
+        }
+
+        // CAMERA UPDATE (Visuale)
+        if (isReplayMode) {
+            if (hasGhostData && ghostMesh) {
+                const camOffset = new THREE.Vector3(0, 3.5, 6.0);
+                camOffset.applyMatrix4(ghostMesh.matrixWorld);
+                camera.position.lerp(camOffset, 0.25 * (60/gameSettings.maxFPS));
+                camera.lookAt(ghostMesh.position.x, ghostMesh.position.y + 1.5, ghostMesh.position.z);
+            }
+        } else {
+            if (cameraMode === 1) { // FPS
+                const camOffset = new THREE.Vector3(0, 1, -0.15);
+                camOffset.applyQuaternion(chassisMesh.quaternion);
+                camOffset.add(chassisMesh.position);
+                camera.position.copy(camOffset);
+                const lookTarget = new THREE.Vector3(0, 0.75, -80);
+                lookTarget.applyMatrix4(chassisMesh.matrixWorld);
+                camera.lookAt(lookTarget);
+            } else { // CHASE
+                const camOffset = new THREE.Vector3(0, 3.5, 6.0);
+                camOffset.applyMatrix4(chassisMesh.matrixWorld);
+                camera.position.lerp(camOffset, 0.25 * (60/gameSettings.maxFPS));
+                camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
+            }
+        }
+
+        // SYNC RUOTE (Visuale)
+        if (vehicle) {
+            for (let i = 0; i < vehicle.wheelInfos.length; i++) {
+                vehicle.updateWheelTransform(i);
+                vehicle.wheelInfos[i].mesh.position.copy(vehicle.wheelInfos[i].worldTransform.position);
+                vehicle.wheelInfos[i].mesh.quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
+            }
+        }
+
+        // AGGIORNAMENTO LUCI FRENO (Visuale)
+        const inBrake = window.inputAnalog ? window.inputAnalog.brake : 0;
+        if (brakeLightL && (inBrake > 0.1)) {
+            brakeLightL.material.emissive.setHex(0xff0000);
+        } else if (brakeLightL) {
+            brakeLightL.material.emissive.setHex(0x000000);
+        }
+
+        // AGGIORNAMENTO TACHIMETRO (Canvas Draw - Pesante, fare solo se si renderizza)
+        const localVelocity = new CANNON.Vec3(0, 0, 0);
+        chassisBody.quaternion.inverse().vmult(chassisBody.velocity, localVelocity);
+        const forwardSpeed = -localVelocity.z;
+        const kmh = Math.floor(Math.abs(forwardSpeed * 3.6));
+        speedoCtx.clearRect(0, 0, 128, 64);
+        drawDigitalNumber(speedoCtx, kmh, 64, 32, 24, 44, 6);
+        speedoTexture.needsUpdate = true;
+
+        // UI TIMER TEXT
+        uiTimer.innerText = formatTime(gameTime);
+
+        // DISEGNO FINALE
+        renderer.render(scene, camera);
+    }
 }
 
 // --- UTILS ---
