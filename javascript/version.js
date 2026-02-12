@@ -1,2 +1,2 @@
-export const GAME_VERSION = "38";
-export const MIN_TRACK_VERSION_COMPATIBILITY = "35";
+export const GAME_VERSION = "39";
+export const MIN_TRACK_VERSION_COMPATIBILITY = "39";

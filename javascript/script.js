@@ -34,13 +34,13 @@ const STORAGE_KEY_SETTINGS = "webmania_settings";
 const ACTIONS = {
     ACCEL: 'accel',
     BRAKE: 'brake',
-    HANDBRAKE: 'handbrake',
     LEFT: 'left',
     RIGHT: 'right',
     RESPAWN_FLY: 'resp_fly',
     RESPAWN_STAND: 'resp_stand',
     RESTART: 'restart',
     PAUSE: 'pause',
+    CAM_TOGGLE: 'cam_toggle',
     MENU_CONFIRM: 'menu_confirm',
     MENU_UP: 'menu_up',
     MENU_DOWN: 'menu_down'
@@ -76,23 +76,23 @@ const DEFAULT_SETTINGS = {
     keyBinds: {
         [ACTIONS.ACCEL]: ['w', 'ArrowUp'],
         [ACTIONS.BRAKE]: ['s', 'ArrowDown'],
-        [ACTIONS.HANDBRAKE]: [' ', 'Shift'],
         [ACTIONS.LEFT]: ['a', 'ArrowLeft'],
         [ACTIONS.RIGHT]: ['d', 'ArrowRight'],
         [ACTIONS.RESPAWN_FLY]: ['Enter', ''],
-        [ACTIONS.RESPAWN_STAND]: ['r', 'R'],
+        [ACTIONS.RESPAWN_STAND]: ['r', ''],
         [ACTIONS.RESTART]: ['Delete', 'Backspace'],
+        [ACTIONS.CAM_TOGGLE]: ['v', ''],
         [ACTIONS.PAUSE]: ['Escape', 'p']
     },
     // Indici bottoni gamepad (Standard Mapping)
     gamepadBinds: {
         [ACTIONS.ACCEL]: 7, // R2
         [ACTIONS.BRAKE]: 6, // L2
-        [ACTIONS.HANDBRAKE]: 0, // X / A
         [ACTIONS.RESPAWN_FLY]: 3, // Triangolo / Y
         [ACTIONS.RESPAWN_STAND]: 1, // Cerchio / B
         [ACTIONS.RESTART]: 8, // Select / Back
         [ACTIONS.PAUSE]: 9,  // Start
+        [ACTIONS.CAM_TOGGLE]: 2, // Quadrato / X
         [ACTIONS.MENU_CONFIRM]: 0, // A / X (Nei menu)
         [ACTIONS.MENU_UP]: 12,     // D-Pad Su
         [ACTIONS.MENU_DOWN]: 13    // D-Pad Giù
@@ -103,9 +103,9 @@ const DEFAULT_SETTINGS = {
         "btn-t-right": { scale: 2, left: '39vh', right: 'auto', bottom: '8vh', top: 'auto' },
         "btn-t-accel": { scale: 1.9, right: '25.5vh', left: 'auto', bottom: '20vh', top: 'auto' },
         "btn-t-brake": { scale: 1.5, right: '4.5vh', left: 'auto', bottom: '5vh', top: 'auto' },
-        "btn-t-handbrake": { scale: 1.3, right: '3vh', left: 'auto', top: '37vh', bottom: 'auto' },
         "btn-t-pause": { scale: 1.3, left: '1.5vh', right: 'auto', top: '1.5vh', bottom: 'auto' },
-        "btn-t-toggle": { scale: 1.3, right: '1.5vh', left: 'auto', top: '1.5vh', bottom: 'auto' }
+        "btn-t-toggle": { scale: 1.3, right: '1.5vh', left: 'auto', top: '1.5vh', bottom: 'auto' },
+        "btn-t-cam": { scale: 1.3, left: '20vh', right: 'auto', top: '1.5vh', bottom: 'auto' }
     }
 };
 
@@ -133,13 +133,12 @@ let currentMusicIndex = -1;
 let isMusicPlaying = false;
 
 let gameSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-const inputState = { accel: 0, brake: 0, handbrake: 0, steerL: 0, steerR: 0 };
+const inputState = { accel: 0, brake: 0, steerL: 0, steerR: 0 };
 
 function loadSettings() {
     const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
     if (saved) {
         const parsed = JSON.parse(saved);
-        // Merge profondo per non perdere nuove chiavi (es. HANDBRAKE) se l'utente ha vecchi settings
         gameSettings = {
             ...DEFAULT_SETTINGS,
             ...parsed,
@@ -301,6 +300,9 @@ let physicsMaterials = {}; // Contenitore per i materiali fisici globali
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
 let lastMenuNavTime = 0; // Debounce per navigazione menu
+
+let cameraMode = 0; // 0 = Chase (dietro), 1 = FPS (prima persona)
+let speedoMesh = null; // Riferimento globale al tachimetro
 
 //ghostcar Replay
 let ghostMesh = null; // La mesh visiva del fantasma
@@ -993,7 +995,7 @@ function generateTrack(matPhysics, matTurbo, seed) {
 
     // MODIFICA QUESTO VALORE PER CAMBIARE LA LUNGHEZZA MEDIA DELLA PISTA
     // Valori più alti (es: 60, 80) ritardano l'aumento della probabilità di fine.
-    const PREFERRED_TRACK_LENGTH = 50;
+    const PREFERRED_TRACK_LENGTH = 40 + (rng() * 20 - 10);
 
     let cx = 0, cy = 0, cz = 0;
     let dir = 0;
@@ -1009,11 +1011,12 @@ function generateTrack(matPhysics, matTurbo, seed) {
     let bankingState = { active: false, angle: 0, counter: 0, cooldown: 0 };
 
     // Nuove variabili di stato per la logica richiesta
-    let checkpointAccumulator = 0.0; // Aumenta probabilità CP
+    let checkpointAccumulator = -0.03; // Aumenta probabilità CP
     let finishProbAccumulator = 0.0; // Aumenta probabilità Fine
     let forcedStraightCounter = 0;   // Se > 0, forza blocchi dritti (dopo Turbo)
     let blockCount = 0;
     let isTrackFinished = false;
+    let trackHistory = []; // Memorizza { type, cx, cy, cz, dir, occupiedLength, meshId, bodyId }
 
     const applyMove = (localDx, localDz, dirIdx, bankAngle) => {
         const v = new THREE.Vector3(localDx, 0, localDz);
@@ -1029,16 +1032,20 @@ function generateTrack(matPhysics, matTurbo, seed) {
     // Loop dinamico (While) invece di For fisso
     while (!isTrackFinished && blockCount < 200) { // Safety break a 200
         blockCount++;
-
+        const currentSnapshot = {
+            cx: cx, cy: cy, cz: cz, dir: dir,
+            occupiedLength: occupiedPoints.length,
+            meshLength: trackMeshes.length,
+            bodyLength: trackBodies.length,
+            bankingState: JSON.parse(JSON.stringify(bankingState)),
+            forcedStraightCounter: forcedStraightCounter,
+        };
         let validMoveFound = false;
         let attempts = 0;
-
         if (bankingState.active) bankingState.counter++;
         else if (bankingState.cooldown > 0) bankingState.cooldown--;
-
         // Incremento probabilità checkpoint ad ogni blocco piazzato
         checkpointAccumulator += 0.015;
-
         // Calcolo probabilità fine pista
         if (blockCount > PREFERRED_TRACK_LENGTH) {
             // Aumenta del 2% per ogni blocco oltre la lunghezza preferita
@@ -1193,6 +1200,7 @@ function generateTrack(matPhysics, matTurbo, seed) {
                 if (rng() < finishProbAccumulator) {
                     move.type = MODULES.FINISH;
                     isTrackFinished = true; // Esce dal loop while
+                    console.log("Truck ended by finishProbAccumulator, blockCount: "+blockCount);
                 }
 
                 lastWasRamp = !!move.isRamp;
@@ -1234,6 +1242,13 @@ function generateTrack(matPhysics, matTurbo, seed) {
                     });
                 }
 
+                // Salvataggio History
+                trackHistory.push({
+                    type: move.type,
+                    isTurn: (move.type === MODULES.TURN_LEFT || move.type === MODULES.TURN_RIGHT),
+                    snapshot: currentSnapshot
+                });
+
                 cx += move.moveV.x;
                 cy += move.moveV.y;
                 cz += move.moveV.z;
@@ -1244,8 +1259,79 @@ function generateTrack(matPhysics, matTurbo, seed) {
 
         // Fallback se incastrato
         if (!validMoveFound) {
-            createBlock(MODULES.FINISH, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
-            isTrackFinished = true;
+            console.log("Bloccato! Cambio direzione dell'ultima curva e riprovo.");
+            let foundTurn = false;
+            let backtrackIndex = -1;
+            // 1. Cerca l'ultima curva nella history andando all'indietro
+            for (let i = trackHistory.length - 1; i >= 0; i--) {
+                if (trackHistory[i].isTurn) {
+                    backtrackIndex = i;
+                    foundTurn = true;
+                    break;
+                }
+            }
+            if (foundTurn) {
+                const badTurn = trackHistory[backtrackIndex];
+                const snap = badTurn.snapshot;
+                // 2. Ripristina stato VARIABILI (cx, cy, dir, ecc)
+                cx = snap.cx; cy = snap.cy; cz = snap.cz; dir = snap.dir;
+                bankingState = snap.bankingState;
+                forcedStraightCounter = snap.forcedStraightCounter;
+                blockCount = backtrackIndex; // Resetta contatore blocchi
+                // 3. Ripristina STATO FISICO (Rimuovi blocchi successivi)
+                // Rimuoviamo da THREE (Scene)
+                for (let j = trackMeshes.length - 1; j >= snap.meshLength; j--) {
+                    scene.remove(trackMeshes[j]);
+                }
+                trackMeshes.length = snap.meshLength;
+                // Rimuoviamo da CANNON (World)
+                for (let j = trackBodies.length - 1; j >= snap.bodyLength; j--) {
+                    if (trackBodies[j].isCheckpoint) {checkpointCount--;}
+                    world.removeBody(trackBodies[j]);
+                }
+                trackBodies.length = snap.bodyLength;
+                // Ripristina OccupiedPoints
+                occupiedPoints.length = snap.occupiedLength;
+                // Troncata la history
+                trackHistory.length = backtrackIndex;
+                // 4. Esegui la Curva OPPOSTA
+                // Se era Left, ora forziamo Right e viceversa
+                const oldType = badTurn.type;
+                const newType = (oldType === MODULES.TURN_LEFT) ? MODULES.TURN_RIGHT : MODULES.TURN_LEFT;
+                const newDir = (oldType === MODULES.TURN_LEFT) ? (dir + 3) % 4 : (dir + 1) % 4; // Right logic vs Left logic
+                const r = TRACK_CFG.blockSize * 2.5; // Usiamo raggio largo per sicurezza
+                // Calcoliamo il vettore movimento manuale per la nuova curva
+                const moveV = applyMove((oldType === MODULES.TURN_LEFT ? r : -r), -r, dir, bankingState.angle);
+                // Creiamo il blocco manualmente
+                createBlock(newType, cx, cy, cz, dir, {
+                    radius: r,
+                    isLeft: (newType === MODULES.TURN_LEFT),
+                            bankAngle: bankingState.angle
+                });
+                // Update collisioni manuale
+                const steps = 3;
+                for (let k = 1; k <= steps; k++) {
+                    const ratio = k / steps;
+                    occupiedPoints.push({
+                        x: cx + moveV.x * ratio, y: cy + moveV.y * ratio, z: cz + moveV.z * ratio, r: 15
+                    });
+                }
+                // Update variabili posizione
+                cx += moveV.x; cy += moveV.y; cz += moveV.z;
+                dir = newDir;
+                // Aggiungiamo la nuova mossa forzata alla history (non come Turn per evitare loop infiniti sullo stesso punto)
+                trackHistory.push({
+                    type: newType,
+                    isTurn: false, // Trick: segniamola false così se si incastra ancora torna alla curva PRIMA di questa
+                    snapshot: currentSnapshot // Usiamo lo snapshot originale di questo step
+                });
+                continue; // Riprova il loop dal nuovo punto
+            } else {
+                // Se non ci sono curve o fallisce tutto, chiudi
+                createBlock(MODULES.FINISH, cx, cy, cz, dir, { length: TRACK_CFG.blockSize });
+                isTrackFinished = true;
+                console.log("Truck ended by !validMoveFound, blockCount: "+blockCount);
+            }
         }
     }
 }
@@ -1355,12 +1441,12 @@ function createCar() {
     speedoTexture = new THREE.CanvasTexture(canvas);
     speedoTexture.minFilter = THREE.NearestFilter;
     speedoTexture.magFilter = THREE.NearestFilter;
-    const speedoPlane = new THREE.Mesh(
+    speedoMesh = new THREE.Mesh(
         new THREE.PlaneGeometry(0.6, 0.3),
-        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
+                                new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
     );
-    speedoPlane.position.set(0, 0.5 + visualY, 1.21);
-    carGroup.add(speedoPlane);
+    speedoMesh.position.set(0, 0.5 + visualY, 1.21); // Posizione default (Chase)
+    carGroup.add(speedoMesh);
 
     chassisMesh = carGroup;
     scene.add(chassisMesh);
@@ -1580,10 +1666,21 @@ function animate() {
         }
     } else {
         // Modalità Gioco Normale
-        const camOffset = new THREE.Vector3(0, 4.0, 6.5);
-        camOffset.applyMatrix4(chassisMesh.matrixWorld);
-        camera.position.lerp(camOffset, 0.2);
-        camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
+        if (cameraMode === 1) {
+            // FIRST PERSON: Posizione pilota (sopra il corpo centrale, leggermente avanti)
+            const camOffset = new THREE.Vector3(0, 1, -0.40);
+            camOffset.applyMatrix4(chassisMesh.matrixWorld);
+            camera.position.copy(camOffset);
+            const lookTarget = new THREE.Vector3(0, 0.75, -80);
+            lookTarget.applyMatrix4(chassisMesh.matrixWorld);
+            camera.lookAt(lookTarget);
+        } else {
+            // CHASE CAM (Default)
+            const camOffset = new THREE.Vector3(0, 4.0, 6.5);
+            camOffset.applyMatrix4(chassisMesh.matrixWorld);
+            camera.position.lerp(camOffset, 0.2);
+            camera.lookAt(chassisMesh.position.x, chassisMesh.position.y + 1.5, chassisMesh.position.z);
+        }
     }
 
     //logica macchina normale
@@ -1609,7 +1706,6 @@ function animate() {
         const inSteer = window.inputAnalog ? window.inputAnalog.steer : 0;
         const inThrottle = window.inputAnalog ? window.inputAnalog.throttle : 0;
         const inBrake = window.inputAnalog ? window.inputAnalog.brake : 0;
-        const inHandbrake = window.inputAnalog ? window.inputAnalog.handbrake : 0;
 
         if (currentState === GAME_STATE.RACING) {
             // Motore
@@ -1618,21 +1714,16 @@ function animate() {
                 if (forwardSpeed > 1.0) brake = CONFIG.brakeForce * inBrake;
                 else engine = -CONFIG.engineForce / 2;
             }
-            // Freno a mano (somma forza)
-            if (inHandbrake > 0.1) {
-                brake += CONFIG.brakeForce * 2;
-                // Opzionale: lock ruote posteriori o slittamento laterale aumentato
-            }
 
             if (wheelsOnGround === 0) { //se in aria
-                if (inBrake || inHandbrake) chassisBody.angularVelocity.set(0, 0, 0); //airlock
+                if (inBrake) chassisBody.angularVelocity.set(0, 0, 0); //airlock
             } else {
                 steer = inSteer * CONFIG.maxSteerVal;
             }
         }
 
         // Luci Freno
-        if (brakeLightL && (inBrake > 0.1 || inHandbrake > 0.1)) {
+        if (brakeLightL && (inBrake > 0.1)) {
             brakeLightL.material.emissive.setHex(0xff0000);
         } else if (brakeLightL) {
             brakeLightL.material.emissive.setHex(0x000000);
@@ -1942,7 +2033,7 @@ function setupInputs() {
         for (const [action, binds] of Object.entries(gameSettings.keyBinds)) {
             if (binds.includes(key)) {
                 // Se è un tasto continuo, aggiorna lo stato
-                if ([ACTIONS.ACCEL, ACTIONS.BRAKE, ACTIONS.LEFT, ACTIONS.RIGHT, ACTIONS.HANDBRAKE].includes(action)) {
+                if ([ACTIONS.ACCEL, ACTIONS.BRAKE, ACTIONS.LEFT, ACTIONS.RIGHT].includes(action)) {
                     updateActionState(action, isPressed ? 1 : 0);
                 }
                 // Se è un evento ONE-SHOT (solo su pressione)
@@ -1951,6 +2042,7 @@ function setupInputs() {
                     if (action === ACTIONS.RESTART) resetTrack(false);
                     if (action === ACTIONS.RESPAWN_STAND) triggerRespawnLogic('standing');
                     if (action === ACTIONS.RESPAWN_FLY) triggerRespawnLogic('flying');
+                    if (action === ACTIONS.CAM_TOGGLE) toggleCamera();
                 }
             }
         }
@@ -2022,7 +2114,6 @@ function setupInputs() {
 function updateActionState(action, val) {
     if (action === ACTIONS.ACCEL) inputState.accel = val;
     if (action === ACTIONS.BRAKE) inputState.brake = val;
-    if (action === ACTIONS.HANDBRAKE) inputState.handbrake = val;
     if (action === ACTIONS.LEFT) inputState.steerL = val;
     if (action === ACTIONS.RIGHT) inputState.steerR = val;
 }
@@ -2044,10 +2135,8 @@ function handleTouchInput(action, active) {
     if (action === 'right') inputState.steerR = active ? 1 : 0;
     if (action === 'accel') inputState.accel = active ? 1 : 0;
     if (action === 'brake') inputState.brake = active ? 1 : 0;
-    if (action === 'handbrake') inputState.handbrake = active ? 1 : 0;
-    if (action === 'pause' && active) {
-        togglePauseGame();
-    }
+    if (action === 'pause' && active) { togglePauseGame(); }
+    if (action === 'cam' && active) { toggleCamera(); }
     if (action === 'toggleui' && active) {
         // Inverte l'impostazione globale
         gameSettings.touchEnabled = !gameSettings.touchEnabled;
@@ -2071,7 +2160,6 @@ function pollInputs() {
     // 1. Keyboard / Touch State (Digitali)
     acc = inputState.accel;
     brk = inputState.brake;
-    hbrk = inputState.handbrake;
     if (inputState.steerL) str += 1;
     if (inputState.steerR) str -= 1;
 
@@ -2088,9 +2176,6 @@ function pollInputs() {
 
             const btnBrk = gp.buttons[gameSettings.gamepadBinds[ACTIONS.BRAKE]];
             if (btnBrk) brk = Math.max(brk, btnBrk.value);
-
-            const btnHbrk = gp.buttons[gameSettings.gamepadBinds[ACTIONS.HANDBRAKE]];
-            if (btnHbrk) hbrk = Math.max(hbrk, btnHbrk.value);
 
             // D-Pad Steering
             if (gp.buttons[14] && gp.buttons[14].pressed) str = 1;
@@ -2111,6 +2196,7 @@ function pollInputs() {
             checkPress(ACTIONS.RESTART, () => resetTrack(false));
             checkPress(ACTIONS.RESPAWN_STAND, () => triggerRespawnLogic('standing'));
             checkPress(ACTIONS.RESPAWN_FLY, () => triggerRespawnLogic('flying'));
+            checkPress(ACTIONS.CAM_TOGGLE, toggleCamera);
         }
     }
 
@@ -2120,7 +2206,32 @@ function pollInputs() {
     brk = Math.min(1, brk);
 
     // Esporta per animate()
-    window.inputAnalog = { steer: str, throttle: acc, brake: brk, handbrake: hbrk };
+    window.inputAnalog = { steer: str, throttle: acc, brake: brk };
+}
+
+function toggleCamera() {
+    cameraMode = (cameraMode + 1) % 2;
+    if (!speedoMesh || !brakeLightL || !brakeLightR) return;
+    const visualY = -0.4; // Deve matchare quello in createCar
+    if (cameraMode === 1) {
+        // --- MODALITÀ Prima Persona ---
+        speedoMesh.position.set(0, 0.57 + visualY, -2);
+        speedoMesh.rotation.x = -Math.PI / 2 ;
+        speedoMesh.scale.set(0.7, 0.7, 0.7);
+        brakeLightL.position.set(0, 0.501 + visualY, -2.18);
+        brakeLightL.rotation.x = -Math.PI / 2;
+        brakeLightL.scale.set(6.02, 0.5, 2);
+        brakeLightR.visible = false;
+    } else {
+        // --- MODALITÀ Terza Persona ---
+        speedoMesh.position.set(0, 0.5 + visualY, 1.21);
+        speedoMesh.rotation.x = 0;
+        speedoMesh.scale.set(1, 1, 1);
+        brakeLightL.position.set(-0.5, 0.6 + visualY, 1.61);
+        brakeLightL.rotation.x = 0;
+        brakeLightL.scale.set(1, 1, 1);
+        brakeLightR.visible = true;
+    }
 }
 
 function saveRunToHistory(time) {
@@ -2600,7 +2711,6 @@ function renderKeyBinds() {
     const friendlyNames = {
         [ACTIONS.ACCEL]: 'Acceleratore',
         [ACTIONS.BRAKE]: 'Freno / Retro',
-        [ACTIONS.HANDBRAKE]: 'Freno a Mano',
         [ACTIONS.LEFT]: 'Sinistra',
         [ACTIONS.RIGHT]: 'Destra',
         [ACTIONS.RESPAWN_FLY]: 'Respawn Chekpoint (Movimento)',
@@ -2728,7 +2838,7 @@ window.uiCloseTouchEditor = () => {
     const ctrl = document.getElementById('touch-controls');
     ctrl.style.zIndex = '';
     const layout = {};
-    const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-handbrake', 'btn-t-toggle'];
+    const buttonIds = ['btn-t-left', 'btn-t-right', 'btn-t-accel', 'btn-t-brake', 'btn-t-pause', 'btn-t-toggle', 'btn-t-cam'];
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     buttonIds.forEach(id => {
@@ -2861,7 +2971,6 @@ window.renderGamepadBinds = () => {
     const friendlyNames = {
         [ACTIONS.ACCEL]: 'Acceleratore',
         [ACTIONS.BRAKE]: 'Freno / Retro',
-        [ACTIONS.HANDBRAKE]: 'Freno a Mano',
         [ACTIONS.RESPAWN_FLY]: 'Respawn (Flying)',
         [ACTIONS.RESPAWN_STAND]: 'Respawn (Standing)',
         [ACTIONS.RESTART]: 'Ricomincia',
