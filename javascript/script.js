@@ -304,6 +304,11 @@ let frameAccumulator = 0;
 let physicsMaterials = {}; // Contenitore per i materiali fisici globali
 let vehicle, chassisMesh, chassisBody, brakeLightL, brakeLightR;
 let trackMeshes = [], trackBodies = [], skidmarkMeshes = [];
+let instancedMeshes = []; // Array per le InstancedMesh create
+let instanceData = {};    // Accumulatore temporaneo: { 'colorKey': [dummyObject1, dummyObject2, ...] }
+const dummy = new THREE.Object3D(); // Oggetto helper per calcoli matriciali
+const geometryUnitBox = new THREE.BoxGeometry(1, 1, 1); // La geometria base per TUTTI i cubi
+
 let lastMenuNavTime = 0; // Debounce per navigazione menu
 
 let cameraMode = 0; // 0 = Chase (dietro), 1 = FPS (prima persona)
@@ -584,13 +589,13 @@ const BLOCK_BUILDERS = {
             //1. ARCO
             const arch = new THREE.Mesh(
                 new THREE.TorusGeometry(8, 1, 8, 24, Math.PI),
-                new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 })
+                new THREE.MeshLambertMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 })
             );
             arch.position.set(0, 0, -len / 2);
             // 2. LINEA A TERRA
             // Creiamo un piano leggermente più largo della strada
             const lineGeo = new THREE.BoxGeometry(width, 0.1, 1.5);
-            const lineMat = new THREE.MeshStandardMaterial({
+            const lineMat = new THREE.MeshLambertMaterial({
                 color: color,
                 transparent: false
             });
@@ -860,28 +865,32 @@ function createSectorMesh(r, width, height, angle, isLeft, color) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.computeVertexNormals();
 
-    const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7 });
+    const mat = new THREE.MeshLambertMaterial({ color: color });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
     return mesh;
 }
 
 // Helper interno per createBlock (deve essere accessibile dai builders)
 function addBox(container, body, offset, dim, colorKey, localRot) {
+    // 1. FISICA (Resta invariata e attiva subito)
     const shape = new CANNON.Box(new CANNON.Vec3(dim.x / 2, dim.y / 2, dim.z / 2));
     shape.colorKey = colorKey;
     const q = localRot || new CANNON.Quaternion();
     body.addShape(shape, offset, q);
-    const geo = new THREE.BoxGeometry(dim.x, dim.y, dim.z);
-    const color = TRACK_CFG.colors[colorKey] || 0xffffff;
-    const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.7 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(offset);
-    if (localRot) mesh.quaternion.copy(localRot);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    container.add(mesh);
+
+    // 2. GRAFICA (Store Locale)
+    // Invece di calcolare il mondo, salviamo i dati nel container.
+    // Se il container viene cancellato dal backtracking, questi dati moriranno con lui.
+    if (!container.userData.visuals) {
+        container.userData.visuals = [];
+    }
+    
+    container.userData.visuals.push({
+        offset: offset.clone(), // Clone per sicurezza
+        dim: dim.clone(),
+        colorKey: colorKey,
+        localRot: localRot ? localRot.clone() : null
+    });
 }
 
 function createBlock(type, x, y, z, dirAngle, params = {}) {
@@ -904,6 +913,7 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
     const container = new THREE.Object3D();
     container.position.set(x, y, z);
     container.quaternion.copy(finalQuat);
+    container.updateMatrix(); 
     scene.add(container);
     trackMeshes.push(container);
 
@@ -970,7 +980,6 @@ function generateTrack(matPhysics, matTurbo, seed) {
     const existingRecord = history.find(r => r.seed === currentSeed);
     currentGhostIndex = 0;
 
-    // --- NUOVA LOGICA COMPATIBILITÀ ---
     let isCompatibleVersion = false;
     if (existingRecord) {
         const recVer = parseInt(existingRecord.version || "0");
@@ -998,6 +1007,13 @@ function generateTrack(matPhysics, matTurbo, seed) {
     trackMeshes.length = 0;
     trackBodies.length = 0;
     occupiedPoints.length = 0;
+
+    instancedMeshes.forEach(m => {
+        scene.remove(m);
+        m.dispose(); // Importante per liberare memoria GPU
+    });
+    instancedMeshes = [];
+    instanceData = {}; // Reset dei dati
 
     // MODIFICA QUESTO VALORE PER CAMBIARE LA LUNGHEZZA MEDIA DELLA PISTA
     // Valori più alti (es: 60, 80) ritardano l'aumento della probabilità di fine.
@@ -1340,7 +1356,63 @@ function generateTrack(matPhysics, matTurbo, seed) {
             }
         }
     }
+    finalizeTrackVisuals();
 }
+function finalizeTrackVisuals() {
+    // 1. Pulizia vecchie istanze
+    instancedMeshes.forEach(m => {
+        scene.remove(m);
+        m.dispose();
+    });
+    instancedMeshes = [];
+    // Accumulatore temporaneo
+    const localInstanceData = {}; 
+    const dummy = new THREE.Object3D();
+    // 2. Iteriamo SOLO sui blocchi che sono sopravvissuti al backtracking
+    trackMeshes.forEach(container => {
+        // Assicuriamoci che la matrice del container sia aggiornata
+        container.updateMatrix(); 
+        if (container.userData.visuals) {
+            container.userData.visuals.forEach(vis => {
+                if (!localInstanceData[vis.colorKey]) localInstanceData[vis.colorKey] = [];
+                // Posizioniamo il dummy relativo al container
+                dummy.position.copy(vis.offset);
+                dummy.quaternion.set(0,0,0,1);
+                if (vis.localRot) {
+                    dummy.quaternion.set(vis.localRot.x, vis.localRot.y, vis.localRot.z, vis.localRot.w);
+                }
+                dummy.scale.set(vis.dim.x, vis.dim.y, vis.dim.z);
+                dummy.updateMatrix();
+                // MAGIA: Moltiplichiamo la matrice del Container per quella locale del Box
+                // Risultato: Posizione esatta nel mondo
+                const finalMatrix = new THREE.Matrix4();
+                finalMatrix.multiplyMatrices(container.matrix, dummy.matrix);
+                
+                localInstanceData[vis.colorKey].push(finalMatrix);
+            });
+        }
+    });
+    // 3. Creazione InstancedMeshes
+    for (const [key, matrices] of Object.entries(localInstanceData)) {
+        if (matrices.length === 0) continue;
+
+        const colorHex = TRACK_CFG.colors[key] || 0xffffff;
+        const material = new THREE.MeshLambertMaterial({ color: colorHex });
+        const iMesh = new THREE.InstancedMesh(geometryUnitBox, material, matrices.length);
+        
+        for (let i = 0; i < matrices.length; i++) {
+            iMesh.setMatrixAt(i, matrices[i]);
+        }
+        
+        iMesh.instanceMatrix.needsUpdate = true;
+        iMesh.castShadow = true;
+        iMesh.receiveShadow = true;
+        
+        scene.add(iMesh);
+        instancedMeshes.push(iMesh);
+    }
+}
+
 
 // --- CREAZIONE AUTO ---
 let speedoCtx, speedoTexture;
@@ -1373,10 +1445,10 @@ function createCar() {
     world.addBody(chassisBody);
 
     // 2. GRAFICA (F1 Low Poly) - MATERIALI GLOBALI
-    matBody = new THREE.MeshStandardMaterial({ color: gameSettings.carColors.body });
-    matSpoiler = new THREE.MeshStandardMaterial({ color: gameSettings.carColors.spoiler });
-    matWheelVis = new THREE.MeshStandardMaterial({ color: gameSettings.carColors.wheels, roughness: 0.5 });
-    matRim = new THREE.MeshStandardMaterial({ color: gameSettings.carColors.rims });
+    matBody = new THREE.MeshLambertMaterial({ color: gameSettings.carColors.body });
+    matSpoiler = new THREE.MeshLambertMaterial({ color: gameSettings.carColors.spoiler });
+    matWheelVis = new THREE.MeshLambertMaterial({ color: gameSettings.carColors.wheels, roughness: 0.5 });
+    matRim = new THREE.MeshLambertMaterial({ color: gameSettings.carColors.rims });
 
     const carGroup = new THREE.Group();
     const visualY = -0.4;
@@ -1432,7 +1504,7 @@ function createCar() {
 
     // Luci freno
     const brakeLightGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05);
-    const brakeLightMat = new THREE.MeshStandardMaterial({ color: 0x880000, emissive: 0x000000, emissiveIntensity: 2 });
+    const brakeLightMat = new THREE.MeshLambertMaterial({ color: 0x880000, emissive: 0x000000, emissiveIntensity: 2 });
     brakeLightL = new THREE.Mesh(brakeLightGeo, brakeLightMat);
     brakeLightR = new THREE.Mesh(brakeLightGeo, brakeLightMat);
     brakeLightL.position.copy(strutL.position).add(new THREE.Vector3(0, -0.1, 0.21));
@@ -1449,7 +1521,7 @@ function createCar() {
     speedoTexture.magFilter = THREE.NearestFilter;
     speedoMesh = new THREE.Mesh(
         new THREE.PlaneGeometry(0.6, 0.3),
-                                new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
+        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
     );
     speedoMesh.position.set(0, 0.5 + visualY, 1.21); // Posizione default (Chase)
     carGroup.add(speedoMesh);
