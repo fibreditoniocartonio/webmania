@@ -59,9 +59,9 @@ const DEFAULT_SETTINGS = {
     renderHeight: 468,
     antialias: true,
     maxFPS: 60,
-    renderDistance: 150,
+    renderDistance: 175,
     maxRecords: 25,
-    maxSkidmarks: 200,
+    maxSkidmarks: 100,
     sfxVolume: 0.4,
     musicVolume: 0.4,
     touchEnabled: false,
@@ -2701,6 +2701,24 @@ window.uiStartGame = (forceSeed = null) => {
     generateTrack(physicsMaterials.ground, physicsMaterials.turbo, finalSeed);
     resetTrack(false); // Posiziona auto e start countdown
     updateTouchVisibility();
+};
+// --- LOGICA PISTA DEL GIORNO ---
+window.uiStartDailyGame = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    
+    const dailyRNG = createRNG( `${year}-${month}-${day}`);
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let generatedSeed = "";
+    for (let i = 0; i < 6; i++) {
+        const randomIndex = Math.floor(dailyRNG() * chars.length);
+        generatedSeed += chars.charAt(randomIndex);
+    }
+
+    const dailySeed = `DAILY_${year}-${month}-${day}_${generatedSeed}`;
+    window.uiStartGame(dailySeed);
 };
 
 window.uiTogglePause = () => {
