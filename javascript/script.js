@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { GAME_VERSION, MIN_TRACK_VERSION_COMPATIBILITY } from './version.js';
+import { LANG_DATA } from './languages.js';
+import { CHANGELOG_TEXT } from './changelog.js';
 
 // --- CONFIGURAZIONE GLOBALE ---
 const CONFIG = {
@@ -210,7 +212,7 @@ function applySettings() {
     const chkGhost = document.getElementById('opt-ghost-enabled');
     if (chkGhost) chkGhost.checked = !!gameSettings.ghostEnabled;
     const btnGhost = document.getElementById('btn-toggle-ghost');
-    if (btnGhost) btnGhost.innerText = `REPLAY GHOSTCAR: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+    if (btnGhost) btnGhost.innerText = `${window.t('ui_ghost_on').split(':')[0]}: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
 
     const chkFs = document.getElementById('opt-ask-fs');
     if (chkFs) {
@@ -298,6 +300,7 @@ function updateTouchVisibility() {
     }
 }
 window.gameSettings = gameSettings;
+
 // --- VARIABILI GLOBALI ---
 let scene, camera, renderer, world;
 let frameAccumulator = 0;
@@ -331,6 +334,8 @@ let currentRunSplits = []; // Tempi dei checkpoint della corsa attuale
 let checkpointCount = 0; // Contatore per assegnare l'ordine ai checkpoint
 let flyingRespawnSequence = [];
 let flyingRespawnIndex = 0;
+
+let currentLang = 'en'; // Default fallback
 
 // Stato Corrente
 let currentState = GAME_STATE.START;
@@ -390,7 +395,7 @@ function formatDiffHTML(ms) { // Helper per formattare il diff (parte non signif
     const str = formatTime(ms);
     let splitIdx = str.search(/[1-9]/);
     if (splitIdx === -1) splitIdx = str.length - 1
-    const insignificant = str.substring(0, splitIdx);
+        const insignificant = str.substring(0, splitIdx);
     const significant = str.substring(splitIdx);
     return `<span style="font-size: 0.5em;">${insignificant}</span>${significant}`;
 }
@@ -404,7 +409,7 @@ function init() {
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
         renderer = new THREE.WebGLRenderer({
             antialias: (gameSettings.antialias !== undefined ? gameSettings.antialias : true),
-            powerPreference: "high-performance"
+                                           powerPreference: "high-performance"
         });
         renderer.setPixelRatio(1);
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -464,7 +469,7 @@ function init() {
 
         // Versione UI
         document.getElementById('version-display').innerText = "v" + GAME_VERSION;
-        
+
         // Gestione URL Hash
         const hash = window.location.hash.replace('#', '');
         if (hash.startsWith('share=')) {
@@ -479,17 +484,30 @@ function init() {
             if (urlSeed) {
                 window.uiStartGame(urlSeed);
             } else {
-                currentState = GAME_STATE.MENU; 
+                currentState = GAME_STATE.MENU;
             }
         }
 
         // Inizializza loop
         lastFrameTime = performance.now();
         loadSettings();
+
+        // --- GESTIONE LINGUA INIZIALE ---
+        const savedLang = localStorage.getItem('webmania_lang');
+        if (savedLang && LANG_DATA[savedLang]) {
+            window.setLanguage(savedLang);
+        } else {
+            // Rileva lingua browser
+            const browserLang = navigator.language.split('-')[0]; // es. "it-IT" -> "it"
+            if (LANG_DATA[browserLang]) {
+                window.setLanguage(browserLang);
+            } else {
+                window.setLanguage('en'); // Fallback default
+            }
+        }
+
         initAudioSystem();
         animate();
-        // Rimuovi vecchio listener se presente
-        // document.getElementById('gen-btn')... RIMOSSO
         console.log("Gioco Inizializzato v" + GAME_VERSION);
     } catch (e) {
         console.error(e);
@@ -589,7 +607,7 @@ const BLOCK_BUILDERS = {
             //1. ARCO
             const arch = new THREE.Mesh(
                 new THREE.TorusGeometry(8, 1, 8, 24, Math.PI),
-                new THREE.MeshLambertMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 })
+                                        new THREE.MeshLambertMaterial({ color: color, emissive: color, emissiveIntensity: 0.5 })
             );
             arch.position.set(0, 0, -len / 2);
             // 2. LINEA A TERRA
@@ -884,12 +902,12 @@ function addBox(container, body, offset, dim, colorKey, localRot) {
     if (!container.userData.visuals) {
         container.userData.visuals = [];
     }
-    
+
     container.userData.visuals.push({
         offset: offset.clone(), // Clone per sicurezza
-        dim: dim.clone(),
-        colorKey: colorKey,
-        localRot: localRot ? localRot.clone() : null
+                                    dim: dim.clone(),
+                                    colorKey: colorKey,
+                                    localRot: localRot ? localRot.clone() : null
     });
 }
 
@@ -913,7 +931,7 @@ function createBlock(type, x, y, z, dirAngle, params = {}) {
     const container = new THREE.Object3D();
     container.position.set(x, y, z);
     container.quaternion.copy(finalQuat);
-    container.updateMatrix(); 
+    container.updateMatrix();
     scene.add(container);
     trackMeshes.push(container);
 
@@ -988,14 +1006,14 @@ function generateTrack(matPhysics, matTurbo, seed) {
     }
     if (existingRecord && isCompatibleVersion) {
         bestTime = existingRecord.time;
-        uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+        uiBestTime.innerText = `${window.t('ui_best')}: ${formatTime(bestTime)}`;
         bestRunSplits = existingRecord.splits || [];
         ghostDataPlayback = existingRecord.ghostData || null;
         console.log("Record compatibile caricato.");
     } else {
         if (existingRecord) console.log("Record esistente ma versione obsoleta. Tratto come nuova corsa.");
         bestTime = null;
-        uiBestTime.innerText = "Best: --:--.---";
+        uiBestTime.innerText = `${window.t('ui_best')}: --:--.---`;
         ghostDataPlayback = null;
         if (ghostMesh) ghostMesh.visible = false;
     }
@@ -1247,9 +1265,9 @@ function generateTrack(matPhysics, matTurbo, seed) {
                     height: move.height,
                     radius: move.radius,
                     isLeft: (move.type === MODULES.TURN_LEFT),
-                    bankAngle: bankingState.angle,
-                    startBank: move.startBank,
-                    endBank: move.endBank
+                            bankAngle: bankingState.angle,
+                            startBank: move.startBank,
+                            endBank: move.endBank
                 });
 
                 // Update coordinate occupate (collisioni)
@@ -1268,7 +1286,7 @@ function generateTrack(matPhysics, matTurbo, seed) {
                 trackHistory.push({
                     type: move.type,
                     isTurn: (move.type === MODULES.TURN_LEFT || move.type === MODULES.TURN_RIGHT),
-                    snapshot: currentSnapshot
+                                  snapshot: currentSnapshot
                 });
 
                 cx += move.moveV.x;
@@ -1366,12 +1384,12 @@ function finalizeTrackVisuals() {
     });
     instancedMeshes = [];
     // Accumulatore temporaneo
-    const localInstanceData = {}; 
+    const localInstanceData = {};
     const dummy = new THREE.Object3D();
     // 2. Iteriamo SOLO sui blocchi che sono sopravvissuti al backtracking
     trackMeshes.forEach(container => {
         // Assicuriamoci che la matrice del container sia aggiornata
-        container.updateMatrix(); 
+        container.updateMatrix();
         if (container.userData.visuals) {
             container.userData.visuals.forEach(vis => {
                 if (!localInstanceData[vis.colorKey]) localInstanceData[vis.colorKey] = [];
@@ -1387,7 +1405,7 @@ function finalizeTrackVisuals() {
                 // Risultato: Posizione esatta nel mondo
                 const finalMatrix = new THREE.Matrix4();
                 finalMatrix.multiplyMatrices(container.matrix, dummy.matrix);
-                
+
                 localInstanceData[vis.colorKey].push(finalMatrix);
             });
         }
@@ -1399,15 +1417,15 @@ function finalizeTrackVisuals() {
         const colorHex = TRACK_CFG.colors[key] || 0xffffff;
         const material = new THREE.MeshLambertMaterial({ color: colorHex });
         const iMesh = new THREE.InstancedMesh(geometryUnitBox, material, matrices.length);
-        
+
         for (let i = 0; i < matrices.length; i++) {
             iMesh.setMatrixAt(i, matrices[i]);
         }
-        
+
         iMesh.instanceMatrix.needsUpdate = true;
         iMesh.castShadow = true;
         iMesh.receiveShadow = true;
-        
+
         scene.add(iMesh);
         instancedMeshes.push(iMesh);
     }
@@ -1521,7 +1539,7 @@ function createCar() {
     speedoTexture.magFilter = THREE.NearestFilter;
     speedoMesh = new THREE.Mesh(
         new THREE.PlaneGeometry(0.6, 0.3),
-        new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
+                                new THREE.MeshBasicMaterial({ map: speedoTexture, transparent: true })
     );
     speedoMesh.position.set(0, 0.5 + visualY, 1.21); // Posizione default (Chase)
     carGroup.add(speedoMesh);
@@ -1581,15 +1599,15 @@ function createCar() {
 // Ordine segmenti: Top, TopRight, BotRight, Bottom, BotLeft, TopLeft, Middle
 const DIGIT_SEGMENTS = [
     [1, 1, 1, 1, 1, 1, 0], // 0
-    [0, 1, 1, 0, 0, 0, 0], // 1
-    [1, 1, 0, 1, 1, 0, 1], // 2
-    [1, 1, 1, 1, 0, 0, 1], // 3
-    [0, 1, 1, 0, 0, 1, 1], // 4
-    [1, 0, 1, 1, 0, 1, 1], // 5
-    [1, 0, 1, 1, 1, 1, 1], // 6
-    [1, 1, 1, 0, 0, 0, 0], // 7
-    [1, 1, 1, 1, 1, 1, 1], // 8
-    [1, 1, 1, 1, 0, 1, 1]  // 9
+[0, 1, 1, 0, 0, 0, 0], // 1
+[1, 1, 0, 1, 1, 0, 1], // 2
+[1, 1, 1, 1, 0, 0, 1], // 3
+[0, 1, 1, 0, 0, 1, 1], // 4
+[1, 0, 1, 1, 0, 1, 1], // 5
+[1, 0, 1, 1, 1, 1, 1], // 6
+[1, 1, 1, 0, 0, 0, 0], // 7
+[1, 1, 1, 1, 1, 1, 1], // 8
+[1, 1, 1, 1, 0, 1, 1]  // 9
 ];
 function drawDigitalNumber(ctx, number, startX, startY, digitWidth, digitHeight, thickness) {
     const strNum = number.toString();
@@ -1843,8 +1861,8 @@ function animate() {
                     const hitCount = Object.keys(currentRunSplits).length;
                     if (hitCount < checkpointCount) {
                         uiMsg.innerHTML = `
-                        <div style="color: #ff0000; font-size: 1.5em;">CHECKPOINT MANCANTI!</div>
-                        <div style="color: #ffffff; font-size: 1.1em;">Hai preso ${hitCount} checkpoint su ${checkpointCount}</div>
+                        <div style="color: #ff0000; font-size: 1.5em;">${window.t('ui_check_miss')}</div>
+                        <div style="color: #ffffff; font-size: 1.1em;">${window.t('ui_check_info', { cur: hitCount, tot: checkpointCount })}</div>
                         `;
                         uiMsg.style.display = 'block';
                         setTimeout(() => { if (currentState === GAME_STATE.RACING) uiMsg.style.display = 'none'; }, 2000);
@@ -1858,20 +1876,21 @@ function animate() {
                             const diffColor = diff <= 0 ? "#00ff00" : "#ff0000";
                             html += `<div style="color: ${diffColor}; font-size: 0.8em;">${sign}${formatTime(Math.abs(diff))}</div>`;
                             if (gameTime < bestTime) {
+                                const oldTimeFormatted = formatTime(bestTime);
                                 bestTime = gameTime;
-                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">NEW BEST TIME!</div>`;
-                                html += `<div style="color: #ffd700; font-size: 0.5em; margin-top:10px;">(old ${uiBestTime.innerText})</div>`;
+                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">${window.t('ui_new_best')}</div>`;
+                                html += `<div style="color: #ffd700; font-size: 0.5em; margin-top:10px;">(old ${oldTimeFormatted})</div>`; // Usa la variabile salvata
                                 bestRunSplits = currentRunSplits;
-                                uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
+                                uiBestTime.innerText = `${window.t('ui_best')}: ${formatTime(bestTime)}`;
                             } else {
-                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
+                                html += `<div style="color: ${diffColor}; font-size: 1.3em; margin-top:10px;">${window.t('ui_finish')}</div>`;
                             }
                         } else {
                             // Prima volta che finisce la pista
                             bestTime = gameTime;
                             bestRunSplits = currentRunSplits;
-                            uiBestTime.innerText = `Best: ${formatTime(bestTime)}`;
-                            html += `<div style="color: #ffd700; font-size: 1.3em; margin-top:10px;">FINISH!</div>`;
+                            uiBestTime.innerText = `${window.t('ui_best')}: ${formatTime(bestTime)}`;
+                            html += `<div style="color: #ffd700; font-size: 1.3em; margin-top:10px;">${window.t('ui_finish')}</div>`;
                         }
                         uiMsg.innerHTML = html;
                         uiMsg.style.display = 'block';
@@ -2327,8 +2346,8 @@ function saveRunToHistory(time) {
         date: new Date().toLocaleString(),
         time: time,
         formattedTime: formatTime(time),
-        ghostData: ghostDataClone,
-        splits: currentRunSplits
+            ghostData: ghostDataClone,
+            splits: currentRunSplits
     };
     console.log(ghostDataRecording);
     let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
@@ -2347,7 +2366,7 @@ function saveRunToHistory(time) {
 
     if (bestTime === null || time <= bestTime) {
         ghostDataPlayback = ghostDataClone;
-        uiBestTime.innerText = `Best: ${formatTime(time)}`;
+        uiBestTime.innerText = `${window.t('ui_best')}: ${formatTime(time)}`;
     }
 }
 
@@ -2479,9 +2498,9 @@ window.uiOpenRecords = () => {
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
 
     if (history.length === 0) {
-        list.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Nessun record trovato.</div>';
+        list.innerHTML = `<div style="padding:20px; text-align:center; color:#888;">${window.t('rec_empty')}</div>`;
     } else {
-            history.forEach((rec, index) => {
+        history.forEach((rec, index) => {
             const div = document.createElement('div');
             const recVer = parseInt(rec.version || "0");
             const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
@@ -2493,19 +2512,19 @@ window.uiOpenRecords = () => {
                 if (e.target.tagName === 'BUTTON') return;
                 navigator.clipboard.writeText(rec.seed);
                 const originalText = div.querySelector('.record-seed').innerText;
-                div.querySelector('.record-seed').innerText = "COPIATO!";
+                div.querySelector('.record-seed').innerText = window.t('rec_copied');
                 setTimeout(() => div.querySelector('.record-seed').innerText = originalText, 1000);
             };
             let replayBtn = (isCompatible && rec.ghostData) ?
             `<button onclick="window.uiStartReplay('${rec.seed}')" style="background:#00aaaa;">REPLAY</button>` : '';
-            let shareBtn = (isCompatible && rec.ghostData) ? 
+            let shareBtn = (isCompatible && rec.ghostData) ?
             `<button class="btn-share" onclick="window.uiShareReplayLink('${rec.seed}')" title="Crea Link Condivisibile">🔗</button>` : '';
             div.innerHTML = `
             <div class="record-meta">
-                ${rec.desc ? `<div class="record-desc">${rec.desc}</div>` : ''}
-                <span class="record-seed ${rec.desc ? 'has-desc' : ''}">${rec.seed}<small>(v${recVer})</small></span>
-                <span style="font-size:0.7em;">${rec.date}</span>
-                ${importedLabel}
+            ${rec.desc ? `<div class="record-desc">${rec.desc}</div>` : ''}
+            <span class="record-seed ${rec.desc ? 'has-desc' : ''}">${rec.seed}<small>(v${recVer})</small></span>
+            <span style="font-size:0.7em;">${rec.date}</span>
+            ${importedLabel}
             </div>
             <div class="record-time">${rec.formattedTime}</div>
             <div class="record-actions">
@@ -2540,8 +2559,8 @@ window.uiToggleSelectAll = () => {
 // ESPORTA RECORDS
 window.uiOpenExport = () => {
     const history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
-    if (history.length === 0) return alert("Nessun record da esportare");
-    renderSelectionModal(history, "ESPORTA SELEZIONATI", (selected) => {
+    if (history.length === 0) return alert(window.t('rec_empty'));
+    renderSelectionModal(history, window.t('rec_btn_export') + " SELEZIONATI", (selected) => {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
@@ -2552,6 +2571,7 @@ window.uiOpenExport = () => {
         document.getElementById('selection-modal').style.display = 'none';
     });
 };
+
 // IMPORTA RECORDS
 window.uiTriggerImport = () => {
     document.getElementById('import-file-input').click();
@@ -2564,7 +2584,7 @@ document.getElementById('import-file-input').onchange = (e) => {
         try {
             const imported = JSON.parse(event.target.result);
             if (!Array.isArray(imported)) throw new Error("Formato non valido");
-            renderSelectionModal(imported, "IMPORTA SELEZIONATI", (selected) => {
+            renderSelectionModal(imported, window.t('rec_btn_import') + " SELEZIONATI", (selected) => {
                 let history = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
                 selected.forEach(newItem => {
                     const exists = history.some(h => h.seed === newItem.seed && h.time === newItem.time);
@@ -2573,9 +2593,9 @@ document.getElementById('import-file-input').onchange = (e) => {
                         history.unshift(newItem);
                     }
                 });
-                    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
-                    document.getElementById('selection-modal').style.display = 'none';
-                    window.uiOpenRecords();
+                localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(history));
+                document.getElementById('selection-modal').style.display = 'none';
+                window.uiOpenRecords();
             });
         } catch (err) { alert("Errore nel caricamento del file JSON"); }
     };
@@ -2599,11 +2619,11 @@ function renderSelectionModal(data, btnText, onConfirm) {
         const versionPart = `(v${item.version || '?'})${!isCompatible ? 'Outdated' : ''}`;
         const mainLabel = `${descPart}${item.seed}${versionPart}`;
         row.innerHTML = `
-            <input type="checkbox" id="sel-${i}" ${isCompatible ? 'checked' : ''}>
-            <label for="sel-${i}" style="color:white; font-size:14px; cursor:pointer; flex:1;">
-            <div style="font-weight: bold; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${mainLabel}</div>
-            <div style="font-size: 12px; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${item.formattedTime} - ${item.date}</div>
-            </label>
+        <input type="checkbox" id="sel-${i}" ${isCompatible ? 'checked' : ''}>
+        <label for="sel-${i}" style="color:white; font-size:14px; cursor:pointer; flex:1;">
+        <div style="font-weight: bold; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${mainLabel}</div>
+        <div style="font-size: 12px; ${!isCompatible ? 'color: #bbb;' : 'color: #fff;'}">${item.formattedTime} - ${item.date}</div>
+        </label>
         `;
         row.onclick = (e) => {
             if (e.target.tagName !== 'INPUT') {
@@ -2663,7 +2683,7 @@ window.toggleGhostInGame = () => {
     }
     gameSettings.ghostEnabled = !gameSettings.ghostEnabled;
     const btn = document.getElementById('btn-toggle-ghost');
-    if (btn) btn.innerText = `GHOST: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+    if (btn) btn.innerText = `${window.t('ui_ghost_on').split(':')[0]}: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
     const chk = document.getElementById('opt-ghost-enabled');
     if (chk) chk.checked = gameSettings.ghostEnabled;
     saveSettings();
@@ -2708,7 +2728,7 @@ window.uiStartDailyGame = () => {
     const year = now.getFullYear();
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
     const day = now.getDate().toString().padStart(2, '0');
-    
+
     const dailyRNG = createRNG( `${year}-${month}-${day}`);
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let generatedSeed = "";
@@ -2739,9 +2759,9 @@ window.uiTogglePause = () => {
             btnGhost.style.display = 'none';
         } else {
             btnGhost.style.display = 'block';
-            btnGhost.innerText = `REPLAY GHOSTCAR: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
+            btnGhost.innerText = `${window.t('ui_ghost_on').split(':')[0]}: ${gameSettings.ghostEnabled ? 'ON' : 'OFF'}`;
         }
-        currentState = GAME_STATE.PAUSED;        
+        currentState = GAME_STATE.PAUSED;
     }
     updateTouchVisibility();
 };
@@ -2812,14 +2832,15 @@ function renderKeyBinds() {
     list.innerHTML = '';
 
     const friendlyNames = {
-        [ACTIONS.ACCEL]: 'Acceleratore',
-        [ACTIONS.BRAKE]: 'Freno / Retro',
-        [ACTIONS.LEFT]: 'Sinistra',
-        [ACTIONS.RIGHT]: 'Destra',
-        [ACTIONS.RESPAWN_FLY]: 'Respawn Chekpoint (Movimento)',
-        [ACTIONS.RESPAWN_STAND]: 'Respawn Chekpoint (Stazionario)',
-        [ACTIONS.RESTART]: 'Ricomincia Pista',
-        [ACTIONS.PAUSE]: 'Pausa'
+        [ACTIONS.ACCEL]: window.t('act_accel'),
+        [ACTIONS.BRAKE]: window.t('act_brake'),
+        [ACTIONS.LEFT]: window.t('act_left'),
+        [ACTIONS.RIGHT]: window.t('act_right'),
+        [ACTIONS.RESPAWN_FLY]: window.t('act_resp_fly'),
+        [ACTIONS.RESPAWN_STAND]: window.t('act_resp_stand'),
+        [ACTIONS.RESTART]: window.t('act_restart'),
+        [ACTIONS.CAM_TOGGLE]: window.t('act_cam'),
+        [ACTIONS.PAUSE]: window.t('act_pause')
     };
 
     for (const [action, keys] of Object.entries(gameSettings.keyBinds)) {
@@ -2832,9 +2853,7 @@ function renderKeyBinds() {
 
         const btnContainer = document.createElement('div');
 
-        // Slot 1
         const btn1 = createBindBtn(action, 0, keys[0]);
-        // Slot 2
         const btn2 = createBindBtn(action, 1, keys[1]);
 
         btnContainer.appendChild(btn1);
@@ -2873,7 +2892,7 @@ function startBinding(action, index) {
 }
 window.cancelBinding = () => {
     document.getElementById('binding-overlay').style.display = 'none';
-    document.getElementById('binding-msg').innerText = "PREMI UN TASTO...";
+    document.getElementById('binding-msg').innerText = window.t('ctrl_bind_msg');
     isBindingKey = false;
     isBindingGamepad = false;
     window.gpBindWaitRelease = false;
@@ -2931,7 +2950,7 @@ window.uiOpenTouchEditor = () => {
         let currentScale = 1.0;
         if (currentTransform && currentTransform.includes('scale')) {
             const match = currentTransform.match(/scale\(([^)]+)\)/);
-            if (match) currentScale = parseFloat(match[1]);
+    if (match) currentScale = parseFloat(match[1]);
         }
         btn.dataset.tempScale = currentScale;
     });
@@ -2999,11 +3018,12 @@ function selectBtn(btn) {
     const slider = document.getElementById('touch-size-slider');
     if (selectedEl) {
         selectedEl.classList.add('selected-btn');
-        label.innerText = "Modifica: " + selectedEl.id.replace('btn-t-', '').toUpperCase();
+        const btnName = selectedEl.id.replace('btn-t-', '').toUpperCase();
+        label.innerText = (window.t('touch_edit_btn') || "Modifica: ") + btnName;
         slider.value = selectedEl.dataset.tempScale || 1.0;
         slider.disabled = false;
     } else {
-        label.innerText = "Clicca un tasto per ridimensionarlo";
+        label.innerText = window.t('touch_sel_none');
         slider.disabled = true;
     }
 }
@@ -3062,7 +3082,7 @@ function renderGamepadStatus() {
         el.style.color = '#00ff00';
         if (list.innerHTML === '') renderGamepadBinds();
     } else {
-        el.innerText = "Premi un tasto sul controller...";
+        el.innerText = window.t('ctrl_gp_msg');
         el.style.color = '#ffff00';
         list.innerHTML = ''; // Pulisci la lista se disconnesso
         requestAnimationFrame(renderGamepadStatus);
@@ -3072,15 +3092,16 @@ window.renderGamepadBinds = () => {
     const list = document.getElementById('gamepad-binds-list');
     list.innerHTML = '';
     const friendlyNames = {
-        [ACTIONS.ACCEL]: 'Acceleratore',
-        [ACTIONS.BRAKE]: 'Freno / Retro',
-        [ACTIONS.RESPAWN_FLY]: 'Respawn (Flying)',
-        [ACTIONS.RESPAWN_STAND]: 'Respawn (Standing)',
-        [ACTIONS.RESTART]: 'Ricomincia',
-        [ACTIONS.PAUSE]: 'Pausa',
-        [ACTIONS.MENU_CONFIRM]: 'Menu: Conferma (X/A)',
-        [ACTIONS.MENU_UP]: 'Menu: Su',
-        [ACTIONS.MENU_DOWN]: 'Menu: Giù'
+        [ACTIONS.ACCEL]: window.t('act_accel'),
+        [ACTIONS.BRAKE]: window.t('act_brake'),
+        [ACTIONS.RESPAWN_FLY]: window.t('act_resp_fly'),
+        [ACTIONS.RESPAWN_STAND]: window.t('act_resp_stand'),
+        [ACTIONS.RESTART]: window.t('act_restart'),
+        [ACTIONS.CAM_TOGGLE]: window.t('act_cam'),
+        [ACTIONS.PAUSE]: window.t('act_pause'),
+        [ACTIONS.MENU_CONFIRM]: window.t('act_menu_conf'),
+        [ACTIONS.MENU_UP]: window.t('act_menu_up'),
+        [ACTIONS.MENU_DOWN]: window.t('act_menu_down')
     };
     // Filtra solo le azioni che hanno un binding per gamepad
     for (const [action, currentIdx] of Object.entries(gameSettings.gamepadBinds)) {
@@ -3109,7 +3130,7 @@ function startGamepadBinding(action) {
     window.gpBindWaitRelease = true;
     const overlay = document.getElementById('binding-overlay');
     const msg = document.getElementById('binding-msg');
-    msg.innerText = "PREMI IL NUOVO TASTO SUL CONTROLLER...";
+    msg.innerText = window.t('ctrl_gp_msg');
     overlay.style.display = 'flex';
     checkForGamepadInput();
 }
@@ -3138,7 +3159,7 @@ function applyGamepadBind(newIndex) {
     isBindingGamepad = false;
     window.gpBindWaitRelease = false;
     document.getElementById('binding-overlay').style.display = 'none';
-    document.getElementById('binding-msg').innerText = "PREMI UN TASTO..."; // Reset msg
+    document.getElementById('binding-msg').innerText = window.t('ctrl_bind_msg');
     renderGamepadBinds();
 }
 window.resetGamepadDefaults = () => {
@@ -3253,7 +3274,7 @@ window.updateCarColor = (part, val) => {
 };
 window.saveCustomize = () => {
     saveSettings();
-    alert("Configurazione Salvata!");
+    alert(window.t('cust_msg_saved'));
 };
 window.resetCustomize = () => {
     gameSettings.carColors = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.carColors));
@@ -3275,12 +3296,12 @@ function initAudioSystem() {
     for (const [key, path] of Object.entries(AUDIO_FILES)) {
         if (key === 'music') continue;
         fetch(path)
-            .then(response => response.arrayBuffer())
-            .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
-            .then(audioBuffer => {
-                sfxBuffers[key] = audioBuffer;
-            })
-            .catch(e => console.error("Errore caricamento audio: " + path, e));
+        .then(response => response.arrayBuffer())
+        .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+        .then(audioBuffer => {
+            sfxBuffers[key] = audioBuffer;
+        })
+        .catch(e => console.error("Errore caricamento audio: " + path, e));
     }
 
     //sblocco audio nel caso in cui apro un link diretto a una pista
@@ -3312,7 +3333,7 @@ function initAudioSystem() {
     musicElement.onended = () => {
         if (isMusicPlaying) manageMusic('start_new_track');
     };
-    musicElement.volume = gameSettings.musicVolume;
+        musicElement.volume = gameSettings.musicVolume;
 }
 function playSfx(name, volumeScale = 1.0) {
     if (!audioCtx || !sfxBuffers[name]) return;
@@ -3419,13 +3440,13 @@ function handleSharedReplay(compressedString) {
         // 1. Decompressione
         const jsonString = LZString.decompressFromEncodedURIComponent(compressedString);
         if (!jsonString) throw new Error("Decompressione fallita");
-        
+
         const data = JSON.parse(jsonString);
-        
+
         // 2. Controllo Versione
         const recVer = parseInt(data.v || "0");
         const minVer = parseInt(MIN_TRACK_VERSION_COMPATIBILITY);
-        
+
         if (recVer < minVer) {
             alert(`Impossibile importare: il replay è di una versione vecchia (v${recVer}). Richiesta v${minVer}+.`);
             // Pulisci l'URL per evitare loop se l'utente ricarica
@@ -3439,7 +3460,7 @@ function handleSharedReplay(compressedString) {
         document.getElementById('import-meta-seed').innerText = "SEED: " + data.s;
         document.getElementById('import-meta-time').innerText = "TEMPO: " + formatTime(data.t);
         document.getElementById('import-meta-ver').innerText = `Versione Replay: v${data.v}`;
-        
+
         // Nascondi gli altri menu e mostra quello di importazione
         document.querySelectorAll('.menu-screen').forEach(el => el.style.display = 'none');
         document.getElementById('menu-import-confirm').style.display = 'flex';
@@ -3458,9 +3479,9 @@ window.uiCancelImport = () => {
 };
 window.uiConfirmImport = () => {
     if (!pendingImportData) return;
-    
+
     const historyData = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
-    
+
     // Costruiamo l'oggetto record standard
     const newRecord = {
         seed: pendingImportData.s,
@@ -3468,15 +3489,15 @@ window.uiConfirmImport = () => {
         date: new Date().toLocaleString(),
         time: pendingImportData.t,
         formattedTime: formatTime(pendingImportData.t),
-        ghostData: pendingImportData.g,
-        splits: pendingImportData.sp,
-        desc: pendingImportData.d || "",
-        isImported: true
+            ghostData: pendingImportData.g,
+            splits: pendingImportData.sp,
+            desc: pendingImportData.d || "",
+            isImported: true
     };
 
     // Controllo esistenza
     const existingIndex = historyData.findIndex(r => r.seed === newRecord.seed);
-    
+
     if (existingIndex >= 0) {
         const existing = historyData[existingIndex];
         // Se esiste, chiedi conferma
@@ -3494,7 +3515,7 @@ window.uiConfirmImport = () => {
     }
 
     localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(historyData));
-    
+
     // Reset e vai ai record
     pendingImportData = null;
     history.pushState("", document.title, window.location.pathname + window.location.search); // Pulisci URL
@@ -3504,7 +3525,7 @@ window.uiConfirmImport = () => {
 window.uiShareReplayLink = (seed) => {
     const historyData = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || "[]");
     const rec = historyData.find(r => r.seed === seed);
-    
+
     if (!rec) { alert("Errore: record non trovato."); return; }
 
     // Creiamo un oggetto "minificato" per risparmiare caratteri nell'URL
@@ -3520,12 +3541,12 @@ window.uiShareReplayLink = (seed) => {
     try {
         const jsonStr = JSON.stringify(shareObj);
         const compressed = LZString.compressToEncodedURIComponent(jsonStr);
-        
+
         const shareUrl = `${window.location.origin}${window.location.pathname}#share=${compressed}`;
-        
+
         // Copia nella clipboard
         navigator.clipboard.writeText(shareUrl).then(() => {
-            alert("LINK COPIATO NEGLI APPUNTI!\n\nInvia questo URL a un amico per sfidarlo.");
+            alert(window.t('rec_copied') + "\n\nInvia questo URL a un amico per sfidarlo.");
         }, (err) => {
             prompt("Copia questo link:", shareUrl);
         });
@@ -3536,5 +3557,57 @@ window.uiShareReplayLink = (seed) => {
     }
 };
 
+//language
+window.t = (key, placeholders = {}) => {
+    const langObj = LANG_DATA[currentLang] || LANG_DATA['en'] || {};
+    let str = langObj[key] || key;
+    for (const [pk, pv] of Object.entries(placeholders)) {
+        str = str.replace(`{${pk}}`, pv);
+    }
+    return str;
+};
+window.setLanguage = (lang) => {
+    if (!LANG_DATA[lang]) return;
+    currentLang = lang;
+    localStorage.setItem('webmania_lang', lang);
+
+    // Aggiorna bandiera menu principale
+    const flagIcon = document.getElementById('flag-icon');
+    if (flagIcon) flagIcon.innerText = (lang === 'it') ? "🇮🇹" : "🇬🇧"; // Aggiungi altre bandiere se necessario
+
+    // Aggiorna elementi DOM statici
+    document.querySelectorAll('[data-lang]').forEach(el => {
+        const key = el.getAttribute('data-lang');
+        if (key) el.innerText = window.t(key);
+    });
+
+        // Aggiorna elementi con template (es. Best: --:--)
+        document.querySelectorAll('[data-lang-template]').forEach(el => {
+            const key = el.getAttribute('data-lang-template');
+            // Preserva il valore dinamico se possibile, ma per semplicità qui resettiamo o usiamo logica specifica
+            // Per 'ui_best', dobbiamo mantenere il tempo se c'è
+            if (key === 'ui_best') {
+                const timePart = el.innerText.split(':')[1] ? ':' + el.innerText.split(':')[1] : ': --:--.---';
+                el.innerText = window.t(key) + timePart;
+            }
+        });
+
+        // Aggiorna Bindings e UI dinamica se aperta
+        if (document.getElementById('opt-keys').style.display !== 'none') renderKeyBinds();
+        if (document.getElementById('opt-gamepad').style.display !== 'none') renderGamepadBinds();
+
+        // Aggiorna Changelog se aperto
+        const clContent = document.getElementById('changelog-content');
+    if (clContent) clContent.innerHTML = CHANGELOG_TEXT;
+
+    console.log("Lingua impostata:", lang);
+};
+window.uiOpenLanguage = () => showScreen('menu-language');
+window.uiOpenChangelog = () => {
+    showScreen('menu-changelog');
+    document.getElementById('changelog-content').innerHTML = CHANGELOG_TEXT;
+};
+
 // Init
 init();
+

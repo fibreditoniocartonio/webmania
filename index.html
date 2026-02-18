@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,7 +12,7 @@
 
     <!-- Interfaccia di Gioco -->
     <div id="ui-layer">
-        <div id="timer">00:00.000</div>
+        <div id="timer" data-lang-template="ui_best">00:00.000</div>
         <div id="best-time">Best: --:--.---</div>
         <div id="countdown"></div>
         <div id="message"></div>
@@ -30,16 +30,16 @@
         </div>
         <!-- Editor Touch (Visibile solo nelle opzioni) -->
         <div id="touch-editor-overlay" style="display: none; z-index: 3000; flex-direction: column;">
-            <div class="editor-msg" style="position: relative; top: auto; margin-bottom: 20px;">
+            <div class="editor-msg" style="position: relative; top: auto; margin-bottom: 20px;" data-lang="touch_editor_msg">
                 TRASCINA PER SPOSTARE - CLICCA PER SELEZIONARE
             </div>
             <!-- Controlli Editor -->
             <div style="background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #fff; border-radius: 10px; z-index: 3010; pointer-events: auto;">
-                <label style="color: white; font-size: 18px; display: block; margin-bottom: 5px;">Grandezza Tasto Selezionato</label>
+                <label style="color: white; font-size: 18px; display: block; margin-bottom: 5px;" data-lang="touch_size_label">Grandezza Tasto Selezionato</label>
                 <input type="range" id="touch-size-slider" min="0.5" max="2.5" step="0.1" value="1.0" style="width: 200px;">
-                <div id="selected-btn-name" style="color: #ffff00; text-align: center; margin-top: 5px; font-size: 14px;">Nessuno selezionato</div>
+                <div id="selected-btn-name" style="color: #ffff00; text-align: center; margin-top: 5px; font-size: 14px;" data-lang="touch_sel_none">Nessuno selezionato</div>
             </div>
-            <button class="menu-btn secondary" style="margin-top: 20px; width:200px; pointer-events:auto; z-index: 3010;" onclick="window.uiCloseTouchEditor()">SALVA & ESCI</button>
+            <button class="menu-btn secondary" style="margin-top: 20px; width:200px; pointer-events:auto; z-index: 3010;" onclick="window.uiCloseTouchEditor()" data-lang="touch_save_exit">SALVA & ESCI</button>
         </div>
 
     <!-- Menu Principale (inizialmente visibile) -->
@@ -48,27 +48,30 @@
 
         <!-- Schermata Home -->
         <div id="menu-home" class="menu-screen">
-            <button class="menu-btn" onclick="window.uiOpenPlay()">GIOCA</button>
-            <button class="menu-btn" onclick="window.uiOpenRecords()">RECORD</button>
-            <button class="menu-btn" onclick="window.uiOpenOptions()">OPZIONI</button>
+            <button class="menu-btn" onclick="window.uiOpenPlay()" data-lang="menu_play">GIOCA</button>
+            <button class="menu-btn" onclick="window.uiOpenRecords()" data-lang="menu_records">RECORD</button>
+            <button class="menu-btn" onclick="window.uiOpenOptions()" data-lang="menu_options">OPZIONI</button>
+            <button class="menu-btn" onclick="window.uiOpenLanguage()" id="btn-lang-main">
+                <span id="flag-icon">🇬🇧</span> <span data-lang="menu_language">LINGUA</span>
+            </button>
         </div>
 
         <!-- Schermata Gioca (Pista del Giorno + Input Seed) -->
         <div id="menu-play" class="menu-screen" style="display:none;">
-            <h2>PISTA DEL GIORNO</h2>
-            <button class="menu-btn primary" style="margin-bottom: 10px;" onclick="window.uiStartDailyGame()">GIOCA PISTA DEL GIORNO</button>
+            <h2 data-lang="play_daily_title">PISTA DEL GIORNO</h2>
+            <button class="menu-btn primary" style="margin-bottom: 10px;" onclick="window.uiStartDailyGame()" data-lang="play_daily_btn">GIOCA PISTA DEL GIORNO</button>
             <div style="width: 100%; height: 1px; background: #444; margin: 15px 0;"></div>
-            <h2>OPPURE INSERISCI SEED</h2>
+            <h2 data-lang="play_seed_title">OPPURE INSERISCI SEED</h2>
             <input type="text" id="seed-input" placeholder="Es: 12345" maxlength="20">
             <div class="btn-row">
-                <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
-                <button class="menu-btn primary" onclick="window.uiStartGame()">INIZIA!</button>
+                <button class="menu-btn secondary" onclick="window.uiBackToHome()" data-lang="play_back">INDIETRO</button>
+                <button class="menu-btn primary" onclick="window.uiStartGame()" data-lang="play_start">INIZIA!</button>
             </div>
         </div>
 
         <!-- Schermata Importazione Replay Condiviso -->
         <div id="menu-import-confirm" class="menu-screen" style="display:none;">
-            <h2 style="margin-bottom: 5px;">REPLAY CONDIVISO</h2>
+            <h2 style="margin-bottom: 5px;" data-lang="import_title">REPLAY CONDIVISO</h2>
             <div style="text-align: center; color: #ccc; margin-bottom: 20px;">
                 <div id="import-meta-desc" style="color: #fff; font-weight:bold; font-size: 26px;"></div>
                 <div id="import-meta-seed" style="color: #fff; font-size: 22px; font-weight: bold;">SEED: ???</div>
@@ -76,30 +79,31 @@
                 <div id="import-meta-ver" style="font-size: 12px; margin-top: 10px;"></div>
             </div>
             <div class="btn-row">
-                <button class="menu-btn secondary" onclick="window.uiCancelImport()">ANNULLA</button>
-                <button class="menu-btn primary" onclick="window.uiConfirmImport()">SALVA & GUARDA</button>
+                <button class="menu-btn secondary" onclick="window.uiCancelImport()" data-lang="import_cancel">ANNULLA</button>
+                <button class="menu-btn primary" onclick="window.uiConfirmImport()" data-lang="import_confirm">SALVA & GUARDA</button>
             </div>
         </div>
 
         <!-- Schermata Record -->
         <div id="menu-records" class="menu-screen" style="display:none;">
-            <h2>Record dei seed salvati</h2>
+            <h2 data-lang="rec_title">Record dei seed salvati</h2>
             <div style="display: flex; gap: 10px; width: 100%;">
-                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiTriggerImport()">IMPORTA</button>
-                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiOpenExport()">ESPORTA</button>
+                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiTriggerImport()" data-lang="rec_btn_import">IMPORTA</button>
+                <button class="menu-btn" style="font-size: 14px; padding: 10px;" onclick="window.uiOpenExport()" data-lang="rec_btn_export">ESPORTA</button>
             </div>
             <div id="records-list"></div>
-            <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+            <button class="menu-btn secondary" onclick="window.uiBackToHome()" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Schermata Opzioni Principale -->
         <div id="menu-options" class="menu-screen" style="display:none;">
-            <h2>OPZIONI</h2>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')">IMPOSTAZIONI</button>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')">COMANDI</button>
-            <button class="menu-btn" onclick="window.uiOpenCustomize()">PERSONALIZZA AUTO</button>
-            <button class="menu-btn" onclick="window.open('https://fibreditoniocartonio.github.io/', '_blank')">CREDITI</button>
-            <button class="menu-btn secondary" onclick="window.uiBackToHome()">INDIETRO</button>
+            <h2 data-lang="opt_title">OPZIONI</h2>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-general')" data-lang="opt_settings">IMPOSTAZIONI</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-controls')" data-lang="opt_controls">COMANDI</button>
+            <button class="menu-btn" onclick="window.uiOpenCustomize()" data-lang="opt_customize">PERSONALIZZA AUTO</button>
+            <button class="menu-btn" onclick="window.uiOpenChangelog()" data-lang="opt_changelog">CHANGELOG</button>
+            <button class="menu-btn" onclick="window.open('https://fibreditoniocartonio.github.io/', '_blank')" data-lang="opt_credits">CREDITI</button>
+            <button class="menu-btn secondary" onclick="window.uiBackToHome()" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Schermata Personalizza Auto -->
@@ -107,30 +111,30 @@
             <!-- Colonna Controlli (Sinistra) -->
             <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center;">
                 <div class="setting-row">
-                    <label>Carrozzeria</label>
+                    <label data-lang="cust_body">Carrozzeria</label>
                     <input type="color" id="col-body" oninput="window.updateCarColor('body', this.value)">
                 </div>
                 <div class="setting-row">
-                    <label>Ruote</label>
+                    <label data-lang="cust_wheels">Ruote</label>
                     <input type="color" id="col-wheels" oninput="window.updateCarColor('wheels', this.value)">
                 </div>
                 <div class="setting-row">
-                    <label>Cerchioni</label>
+                    <label data-lang="cust_rims">Cerchioni</label>
                     <input type="color" id="col-rims" oninput="window.updateCarColor('rims', this.value)">
                 </div>
                 <div class="setting-row">
-                    <label>Alettone</label>
+                    <label data-lang="cust_spoiler">Alettone</label>
                     <input type="color" id="col-spoiler" oninput="window.updateCarColor('spoiler', this.value)">
                 </div>
                 <div class="setting-row">
-                    <label>Tachimetro</label>
+                    <label data-lang="cust_speedo">Tachimetro</label>
                     <input type="color" id="col-speedo" oninput="window.updateCarColor('speedo', this.value)">
                 </div>
                 <div style="margin-top: 20px; display: flex; gap: 10px;">
-                    <button class="menu-btn primary" onclick="window.saveCustomize()">SALVA</button>
-                    <button class="menu-btn" onclick="window.resetCustomize()">RESET</button>
+                    <button class="menu-btn primary" onclick="window.saveCustomize()" data-lang="cust_save">SALVA</button>
+                    <button class="menu-btn" onclick="window.resetCustomize()" data-lang="cust_reset">RESET</button>
                 </div>
-                <button class="menu-btn secondary" style="margin-top: 10px;" onclick="window.uiCloseCustomize()">INDIETRO</button>
+                <button class="menu-btn secondary" style="margin-top: 10px;" onclick="window.uiCloseCustomize()" data-lang="play_back">INDIETRO</button>
             </div>
             <!-- Colonna Preview (Destra) -->
             <div id="car-preview-container" style="flex: 1; background: #000; border: 2px solid #555; position: relative; height:100%;">
@@ -140,15 +144,15 @@
 
         <!-- Sottomenu Generali -->
         <div id="opt-general" class="menu-screen" style="display:none;">
-            <h2>GRAFICA</h2>
+            <h2 data-lang="set_graphics">GRAFICA</h2>
             <!-- Risoluzione Interna -->
             <div class="setting-row">
-                <label>Risoluzione Interna</label>
+                <label data-lang="set_res">Risoluzione Interna</label>
                 <input type="range" id="opt-render-height" min="144" max="1080" step="36" onchange="window.updateSetting('renderHeight', this.value)">
                 <span id="val-render-height"></span>
             </div>
             <div class="setting-row">
-                <label>FPS Massimi</label>
+                <label data-lang="set_fps">FPS Massimi</label>
                 <select id="opt-max-fps" onchange="window.updateSetting('maxFPS', this.value)" style="background: #222; color: #fff; border: 1px solid #555; font-family: inherit; font-size: 16px; padding: 5px;">
                     <option value="15">15 FPS</option>
                     <option value="20">20 FPS</option>
@@ -157,123 +161,147 @@
                 </select>
             </div>
             <div class="setting-row">
-                <label>Antialiasing (Richiede Ricarica pagina)</label>
+                <label data-lang="set_aa">Antialiasing (Richiede Ricarica pagina)</label>
                 <input type="checkbox" id="opt-antialias" onchange="window.updateSetting('antialias', this.checked)">
             </div>
             <div class="setting-row">
-                <label>Distanza Render (Fog)</label>
+                <label data-lang="set_dist">Distanza Render (Fog)</label>
                 <input type="range" id="opt-render-dist" min="50" max="1000" step="25" onchange="window.updateSetting('renderDistance', this.value)">
                 <span id="val-render-dist"></span>
             </div>
             <div class="setting-row">
-                <label>Quantità massima segni sgommate</label>
+                <label data-lang="set_skids">Quantità massima segni sgommate</label>
                 <input type="range" id="opt-max-skids" min="0" max="500" step="10" onchange="window.updateSetting('maxSkidmarks', this.value)">
                 <span id="val-max-skids"></span>
             </div>
-            <h2>RECORDS</h2>
+            <h2 data-lang="set_records_sec">RECORDS</h2>
             <div class="setting-row">
-                <label>Max Record Salvati</label>
+                <label data-lang="set_max_rec">Max Record Salvati</label>
                 <input type="range" id="opt-max-records" min="25" max="1000" step="25" onchange="window.updateSetting('maxRecords', this.value)">
                 <span id="val-max-records"></span>
             </div>
             <div class="setting-row">
-                <label>Mostra Ghost Car dei Replay</label>
+                <label data-lang="set_ghost">Mostra Ghost Car dei Replay</label>
                 <input type="checkbox" id="opt-ghost-enabled" onchange="window.updateSetting('ghostEnabled', this.checked)">
             </div>
             <div class="setting-row">
-                <label>Chiedi di attivare lo Schermo Intero all'avvio</label>
+                <label data-lang="set_fs_ask">Chiedi di attivare lo Schermo Intero all'avvio</label>
                 <input type="checkbox" id="opt-ask-fs" onchange="window.updateFsPref(this.checked)">
             </div>
 
-            <h2>AUDIO</h2>
+            <h2 data-lang="set_audio">AUDIO</h2>
             <div class="setting-row">
-                <label>Volume Musica</label>
+                <label data-lang="set_vol_music">Volume Musica</label>
                 <input type="range" id="opt-vol-music" min="0" max="1" step="0.01" onchange="window.updateAudioSetting('musicVolume', this.value)">
                 <span id="val-vol-music"></span>
             </div>
             <div class="setting-row">
-                <label>Volume Effetti (SFX)</label>
+                <label data-lang="set_vol_sfx">Volume Effetti (SFX)</label>
                 <input type="range" id="opt-vol-sfx" min="0" max="1" step="0.01" onchange="window.updateAudioSetting('sfxVolume', this.value)">
                 <span id="val-vol-sfx"></span>
-            </div>            
+            </div>
 
-            <button class="menu-btn secondary" onclick="window.uiOpenOptions()">INDIETRO</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenOptions()" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Sottomenu Comandi -->
         <div id="opt-controls" class="menu-screen" style="display:none;">
-            <h2>COMANDI</h2>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-keys')">TASTIERA</button>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-gamepad')">CONTROLLER</button>
-            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-touch')">TOUCH</button>
-            <button class="menu-btn secondary" onclick="window.uiOpenOptions()">INDIETRO</button>
+            <h2 data-lang="opt_controls">COMANDI</h2>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-keys')" data-lang="ctrl_kb">TASTIERA</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-gamepad')" data-lang="ctrl_gp">CONTROLLER</button>
+            <button class="menu-btn" onclick="window.uiOpenSubMenu('opt-touch')" data-lang="ctrl_touch">TOUCH</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenOptions()" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Controlli Tastiera -->
         <div id="opt-keys" class="menu-screen scrollable-menu" style="display:none;">
-            <h2>TASTIERA</h2>
+            <h2 data-lang="ctrl_kb">TASTIERA</h2>
             <div id="key-binds-list"></div> <!-- Generato via JS -->
-            <button class="menu-btn" onclick="window.resetKeysDefault()">RIPRISTINA DEFAULT</button>
-            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+            <button class="menu-btn" onclick="window.resetKeysDefault()" data-lang="ctrl_reset_default">RIPRISTINA DEFAULT</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Controlli Gamepad -->
         <div id="opt-gamepad" class="menu-screen" style="display:none;">
-            <h2>CONTROLLER</h2>
+            <h2 data-lang="ctrl_gp">CONTROLLER</h2>
             <div class="setting-row">
-                <label>Abilita Controller</label>
+                <label data-lang="ctrl_enable_gp">Abilita Controller</label>
                 <input type="checkbox" id="chk-gamepad" onchange="window.updateSetting('gamepadEnabled', this.checked)">
             </div>
             <div id="gamepad-status" style="color: yellow; font-size: 14px; margin-bottom: 10px;">Nessun controller rilevato</div>
             <div id="gamepad-binds-list"></div>
-            <button class="menu-btn" onclick="window.resetGamepadDefaults()">RIPRISTINA DEFAULT</button>
-            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+            <button class="menu-btn" onclick="window.resetGamepadDefaults()" data-lang="ctrl_reset_default">RIPRISTINA DEFAULT</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Controlli Touch -->
         <div id="opt-touch" class="menu-screen" style="display:none;">
-            <h2>TOUCH</h2>
+            <h2 data-lang="ctrl_touch">TOUCH</h2>
             <div class="setting-row">
-                <label>Abilita Touch</label>
+                <label data-lang="ctrl_enable_touch">Abilita Touch</label>
                 <input type="checkbox" id="chk-touch" onchange="window.updateSetting('touchEnabled', this.checked)">
             </div>
-            <button class="menu-btn" onclick="window.uiOpenTouchEditor()">MODIFICA TASTI TOUCH</button>
-            <button class="menu-btn" onclick="window.resetTouchDefault()">RIPRISTINA LAYOUT DEFAULT</button>
-            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')">INDIETRO</button>
+            <button class="menu-btn" onclick="window.uiOpenTouchEditor()" data-lang="ctrl_edit_touch">MODIFICA TASTI TOUCH</button>
+            <button class="menu-btn" onclick="window.resetTouchDefault()" data-lang="ctrl_reset_layout">RIPRISTINA LAYOUT DEFAULT</button>
+            <button class="menu-btn secondary" onclick="window.uiOpenSubMenu('opt-controls')" data-lang="play_back">INDIETRO</button>
         </div>
 
         <!-- Overlay Binding (Modale cattura tasto) -->
         <div id="binding-overlay" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.9); z-index: 3000;">
-            <h2 id="binding-msg">PREMI UN TASTO...</h2>
-            <button class="menu-btn secondary" onclick="window.cancelBinding()">ANNULLA</button>
+            <h2 id="binding-msg" data-lang="ctrl_bind_msg">PREMI UN TASTO...</h2>
+            <button class="menu-btn secondary" onclick="window.cancelBinding()" data-lang="import_cancel">ANNULLA</button>
         </div>
-    </div>
+
+        <!-- Modale Selezione Lingua -->
+        <div id="menu-language" class="menu-screen" style="display:none;">
+            <h2 data-lang="menu_language">LINGUA</h2>
+            <div style="display:flex; gap:20px; flex-wrap:wrap; justify-content:center;">
+                <button class="menu-btn lang-select-btn" onclick="window.setLanguage('it')">
+                    <span style="font-size:40px;">🇮🇹</span><br>ITALIANO
+                </button>
+                <button class="menu-btn lang-select-btn" onclick="window.setLanguage('en')">
+                    <span style="font-size:40px;">🇬🇧</span><br>ENGLISH
+                </button>
+            </div>
+            <button class="menu-btn secondary" style="margin-top:20px;" onclick="window.uiBackToHome()" data-lang="play_back">INDIETRO</button>
+        </div>
+
+        <!-- Modale Changelog -->
+        <div id="menu-changelog" class="menu-screen" style="display:none;">
+            <h2 data-lang="opt_changelog">CHANGELOG</h2>
+            <div id="changelog-content" class="scrollable-menu" style="background: rgba(0,0,0,0.5); padding: 15px; border: 1px solid #555; text-align: left; color: #ddd; font-family: sans-serif; line-height: 1.5;">
+                <!-- Contenuto iniettato via JS -->
+            </div>
+            <button class="menu-btn secondary" onclick="window.uiOpenOptions()" data-lang="play_back">INDIETRO</button>
+        </div>
+
+    </div> <!-- Fine div main-menu -->
 
     <!-- Modale Pausa (In-Game) -->
     <div id="pause-modal" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.6);">
         <div class="paused-box">
-            <h2>PAUSA</h2>
-            <button class="menu-btn" onclick="window.uiResume()">RIPRENDI</button>
+            <h2 data-lang="ui_pause">PAUSA</h2>
+            <button class="menu-btn" onclick="window.uiResume()" data-lang="ui_resume">RIPRENDI</button>
             <div id="btn-respawn-div" style="display: none; flex-direction: row; gap: 15px;">
-                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('flying')">RESPAWN (FLYING)</button>
-                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('standing')">RESPAWN (STANDING)</button>
+                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('flying')" data-lang="ui_respawn_fly">RESPAWN (FLYING)</button>
+                <button class="menu-btn" style="text-wrap: nowrap;" onclick="window.uiRespawn('standing')" data-lang="ui_respawn_stand">RESPAWN (STANDING)</button>
             </div>
-            <button class="menu-btn" onclick="window.uiRestartTrack()">RICOMINCIA PISTA</button>
+            <button class="menu-btn" onclick="window.uiRestartTrack()" data-lang="ui_restart">RICOMINCIA PISTA</button>
             <button id="btn-toggle-ghost" style="display: none;" class="menu-btn" onclick="window.toggleGhostInGame()">REPLAY GHOSTCAR: ON</button>
-            <button class="menu-btn danger" onclick="window.uiExitToMenu()">TORNA AL MENU</button>
+            <button class="menu-btn danger" onclick="window.uiExitToMenu()" data-lang="ui_exit">TORNA AL MENU</button>
         </div>
     </div>
 
     <!-- Modal Schermo Intero -->
     <div id="fs-modal" class="menu-overlay" style="display:none; background: rgba(0,0,0,0.9);">
         <div class="paused-box">
-            <h2>SCHERMO INTERO</h2>
-            <p style="color: white; text-align: center;">Vuoi attivare lo schermo intero per una migliore esperienza?</p>
-            <button class="menu-btn primary" onclick="window.uiSetFullscreen(true)">SÌ, ATTIVA</button>
-            <button class="menu-btn" onclick="window.uiSetFullscreen(false)">NO, GRAZIE</button>
+            <h2 data-lang="fs_title">SCHERMO INTERO</h2>
+            <p style="color: white; text-align: center;" data-lang="fs_msg">Vuoi attivare lo schermo intero per una migliore esperienza?</p>
+            <button class="menu-btn primary" onclick="window.uiSetFullscreen(true)" data-lang="fs_yes">SÌ, ATTIVA</button>
+            <button class="menu-btn" onclick="window.uiSetFullscreen(false)" data-lang="fs_no">NO, GRAZIE</button>
             <div style="margin-top: 15px;">
                 <input type="checkbox" id="fs-dont-ask">
-                <label style="color: #888; font-size: 14px;">Non chiedermelo più</label>
+                <label style="color: #888; font-size: 14px;" data-lang="fs_dontask">Non chiedermelo più</label>
             </div>
         </div>
     </div>
@@ -283,14 +311,14 @@
         <h2 id="selection-title">SELEZIONA RECORD</h2>
         <div id="selection-list" style="width: 90%; max-width: 600px; height: 50vh; overflow-y: auto; background: #222; border: 1px solid #444; margin-bottom: 20px;"></div>
         <div class="btn-row" style="flex-wrap: wrap; justify-content: center;">
-            <button class="menu-btn secondary" style="width: auto;" onclick="document.getElementById('selection-modal').style.display='none'">ANNULLA</button>
+            <button class="menu-btn secondary" style="width: auto;" onclick="document.getElementById('selection-modal').style.display='none'" data-lang="import_cancel">ANNULLA</button>
             <button class="menu-btn" style="width: auto;" id="btn-toggle-select" onclick="window.uiToggleSelectAll()">DESELEZIONA TUTTI</button>
             <button class="menu-btn primary" style="width: auto;" id="btn-confirm-selection">CONFERMA</button>
         </div>
         <input type="file" id="import-file-input" style="display:none" accept=".json">
     </div>
 
-    <!-- Import Map corretta per ES Modules -->
+    <!-- Import Map per ES Modules -->
     <script type="importmap">
         {
             "imports": {

@@ -522,3 +522,36 @@ input[type="color"]::-webkit-color-swatch {
     border: 2px solid #fff;
     border-radius: 4px;
 }
+
+/* Language Selector */
+.lang-select-btn {
+    width: 150px;
+    height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+}
+#btn-lang-main {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+/* Changelog Styles */
+#changelog-content h3 {
+    color: #ffd700;
+    margin-top: 0;
+    border-bottom: 1px solid #444;
+    padding-bottom: 5px;
+}
+#changelog-content ul {
+    margin-top: 5px;
+    margin-bottom: 20px;
+    padding-left: 20px;
+}
+#changelog-content li {
+    margin-bottom: 5px;
+}
